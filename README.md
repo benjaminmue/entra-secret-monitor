@@ -183,3 +183,13 @@ Restlaufzeit     Ablauf       Typ      App / Credential
 ## License
 
 MIT
+
+## Unraid
+
+A Community-Applications style template lives in [`unraid/`](unraid/). It pulls
+`ghcr.io/benjaminmue/entra-secret-monitor:latest` and deliberately keeps
+credentials **out** of the Unraid variable fields: Unraid stores template
+variables in clear text on the flash drive, which ends up in the flash backup.
+The template loads `monitor.env` from appdata via `--env-file` instead.
+See [`unraid/README.md`](unraid/README.md) for the details, including the
+UID 10001 file permission caveat for certificate files.
