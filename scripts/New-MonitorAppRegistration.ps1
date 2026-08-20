@@ -1,3 +1,4 @@
+#Requires -Version 7.0
 <#
 .SYNOPSIS
     Creates a least-privilege Entra ID app registration for entra-secret-monitor.
@@ -87,7 +88,8 @@ param(
     [string]$CertificatePath,
     [ValidateRange(1, 24)][int]$SecretMonths = 24,
     [string]$OutFile,
-    [switch]$UseDeviceCode
+    [switch]$UseDeviceCode,
+    [switch]$UseExistingApp
 )
 
 $ErrorActionPreference = 'Stop'
@@ -232,24 +234,39 @@ Write-Host ("   Signed in as {0}" -f $context.Account)
 # --- Guard against duplicates ---------------------------------------------
 
 $existing = Get-MgApplication -Filter "displayName eq '$DisplayName'" -ErrorAction SilentlyContinue
-if ($existing) {
-    throw "An app registration named '$DisplayName' already exists (AppId $($existing[0].AppId)). Use -DisplayName to pick another name, or reuse the existing one."
+
+if ($existing -and -not $UseExistingApp) {
+    throw "An app registration named '$DisplayName' already exists (AppId $($existing[0].AppId)). Re-run with -UseExistingApp to attach a credential to it, or pass -DisplayName to create a separate one."
 }
 
-if (-not $PSCmdlet.ShouldProcess($TenantId, "Create app registration '$DisplayName' with $PermissionName")) {
+$action = if ($existing) { "Attach credential to existing app '$DisplayName'" }
+          else { "Create app registration '$DisplayName' with $PermissionName" }
+if (-not $PSCmdlet.ShouldProcess($TenantId, $action)) {
     return
 }
 
 # --- Application and service principal ------------------------------------
+# Every step below is idempotent, so a run that failed halfway can be repeated.
 
-Write-Host '== Creating app registration ==' -ForegroundColor Cyan
-$app = New-MgApplication -DisplayName $DisplayName -SignInAudience 'AzureADMyOrg' `
-    -Notes "Read-only credential expiry monitoring. Created $(Get-Date -Format 'yyyy-MM-dd')."
+if ($existing) {
+    $app = $existing[0]
+    Write-Host '== Reusing existing app registration ==' -ForegroundColor Yellow
+} else {
+    Write-Host '== Creating app registration ==' -ForegroundColor Cyan
+    $app = New-MgApplication -DisplayName $DisplayName -SignInAudience 'AzureADMyOrg' `
+        -Notes "Read-only credential expiry monitoring. Created $(Get-Date -Format 'yyyy-MM-dd')."
+}
 Write-Host ("   AppId    : {0}" -f $app.AppId)
 Write-Host ("   ObjectId : {0}" -f $app.Id)
 
-Write-Host '== Creating service principal ==' -ForegroundColor Cyan
-$sp = Invoke-WithRetry { New-MgServicePrincipal -AppId $app.AppId }
+Write-Host '== Service principal ==' -ForegroundColor Cyan
+$sp = Get-MgServicePrincipal -Filter "appId eq '$($app.AppId)'" -ErrorAction SilentlyContinue
+if ($sp) {
+    Write-Host '   Already present'
+} else {
+    $sp = Invoke-WithRetry { New-MgServicePrincipal -AppId $app.AppId }
+}
+$sp = @($sp)[0]
 Write-Host ("   SP ObjectId : {0}" -f $sp.Id)
 
 # --- Permission and consent -----------------------------------------------
@@ -261,17 +278,31 @@ $role = $graphSp.AppRoles | Where-Object {
 }
 if (-not $role) { throw "Application permission $PermissionName not found on the Graph service principal." }
 
-Invoke-WithRetry {
-    New-MgServicePrincipalAppRoleAssignment -ServicePrincipalId $sp.Id `
-        -PrincipalId $sp.Id -ResourceId $graphSp.Id -AppRoleId $role.Id | Out-Null
+$assigned = Get-MgServicePrincipalAppRoleAssignment -ServicePrincipalId $sp.Id -ErrorAction SilentlyContinue |
+    Where-Object { $_.AppRoleId -eq $role.Id -and $_.ResourceId -eq $graphSp.Id }
+
+if ($assigned) {
+    Write-Host '   Already granted'
+} else {
+    Invoke-WithRetry {
+        New-MgServicePrincipalAppRoleAssignment -ServicePrincipalId $sp.Id `
+            -PrincipalId $sp.Id -ResourceId $graphSp.Id -AppRoleId $role.Id | Out-Null
+    }
+    Write-Host '   Admin consent granted'
 }
-Write-Host '   Admin consent granted'
 
 # --- Credential ------------------------------------------------------------
 
 $prefix = $TenantKey.ToUpper() -replace '[^A-Z0-9]', '_'
 $credentialLines = @()
 $generated = $null
+
+# Graph does not return the public key material of existing keyCredentials, so
+# they cannot be preserved and written back. Refuse to silently drop them.
+if (($CreateCertificate -or $CertificatePath) -and $app.KeyCredentials.Count -gt 0) {
+    $names = ($app.KeyCredentials | ForEach-Object { $_.DisplayName }) -join ', '
+    throw "This app registration already has $($app.KeyCredentials.Count) certificate(s) [$names]. Uploading another one through this script would replace them. Add the certificate in the portal instead, or use a separate -DisplayName."
+}
 
 if ($CreateCertificate) {
     Write-Host "== Generating certificate ($CertificateYears years) ==" -ForegroundColor Cyan
