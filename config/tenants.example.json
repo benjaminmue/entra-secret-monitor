@@ -1,0 +1,24 @@
+{
+  "contoso": {
+    "display_name": "Contoso AG",
+    "tenant_id": "00000000-0000-0000-0000-000000000000",
+    "client_id": "00000000-0000-0000-0000-000000000000",
+    "cert_path": "/config/contoso.crt",
+    "key_path": "/config/contoso.key",
+    "include_sp": false,
+    "app_filter": "",
+    "show_expired": false,
+    "warn_days": 30,
+    "error_days": 14,
+    "max_channels": 45,
+    "push_url": ""
+  },
+  "fabrikam": {
+    "display_name": "Fabrikam GmbH",
+    "tenant_id": "00000000-0000-0000-0000-000000000000",
+    "client_id": "00000000-0000-0000-0000-000000000000",
+    "client_secret": "REPLACE_ME",
+    "warn_days": 30,
+    "error_days": 14
+  }
+}

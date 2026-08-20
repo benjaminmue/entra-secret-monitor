@@ -1,0 +1,23 @@
+services:
+  entra-secret-monitor:
+    build: .
+    # image: ghcr.io/<owner>/entra-secret-monitor:latest
+    container_name: entra-secret-monitor
+    restart: unless-stopped
+    env_file:
+      - .env
+    ports:
+      - "8099:8099"
+    volumes:
+      # Zertifikate und optionale tenants.json, read only eingehaengt
+      - ./config:/config:ro
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
