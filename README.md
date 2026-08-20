@@ -68,6 +68,32 @@ Upload `contoso.crt` under *Certificates & secrets -> Certificates*.
 The monitoring app registration shows up in its own report, so it watches its own
 expiry as well.
 
+## Creating the app registration
+
+`scripts/New-MonitorAppRegistration.ps1` does the whole setup in one call:
+it creates a dedicated app registration, grants and consents to
+`Application.Read.All`, generates a self-signed key pair locally, uploads the
+public certificate and prints the environment block.
+
+```powershell
+./scripts/New-MonitorAppRegistration.ps1 `
+  -TenantId 00000000-1111-2222-3333-444444444444 `
+  -TenantKey contoso -CreateCertificate -CertificateYears 3
+```
+
+Requires the `Microsoft.Graph.Applications` module and an account allowed to
+create app registrations and grant admin consent. Add `-UseDeviceCode` when no
+browser is available, `-CertificatePath` to upload an existing certificate, and
+omit `-CreateCertificate` to fall back to a client secret.
+
+The private key is written next to the certificate and never sent to Entra.
+Copy both files to the `config` directory of the monitoring host.
+
+Certificate lifetime is not capped by Entra, unlike the 24 months a client
+secret gets. Three years is the default here: the monitor reports its own
+expiry in time, so a longer lifetime mainly extends the window in which a
+leaked key stays usable.
+
 ## Configuration
 
 Everything is environment variables, so one container serves many tenants:
