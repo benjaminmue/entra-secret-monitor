@@ -219,6 +219,20 @@ function Get-CertificateBase64 {
 
 # --- Connect ---------------------------------------------------------------
 
+# Import before any Graph cmdlet runs. Connect-MgGraph would otherwise pull in
+# the newest Microsoft.Graph.Authentication, which then collides with an older
+# Microsoft.Graph.Applications that pins an exact assembly version.
+try {
+    Import-Module Microsoft.Graph.Applications -ErrorAction Stop
+} catch {
+    $versions = (Get-Module -ListAvailable Microsoft.Graph.Applications, Microsoft.Graph.Authentication |
+        ForEach-Object { "$($_.Name) $($_.Version)" } | Sort-Object -Unique) -join ', '
+    throw "Could not load Microsoft.Graph.Applications: $($_.Exception.Message)`nInstalled: $versions`nFix with: Install-Module Microsoft.Graph.Applications -Scope CurrentUser -Force, then start a fresh PowerShell session."
+}
+
+$loaded = Get-Module Microsoft.Graph.Applications
+Write-Verbose "Microsoft.Graph.Applications $($loaded.Version) loaded"
+
 Write-Host "== Connecting to tenant $TenantId ==" -ForegroundColor Cyan
 $connectArgs = @{
     TenantId    = $TenantId
