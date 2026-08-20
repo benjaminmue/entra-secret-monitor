@@ -376,10 +376,19 @@ def summarize(channels, cfg):
     }
 
 
-def scan_tenant(cfg):
-    """Run a full scan for one tenant and return channels plus summary."""
-    token = get_token(cfg)
-    creds = collect_credentials(token, cfg.include_sp)
+def fetch_credentials(cfg):
+    """
+    Authenticate and return the raw credential list for one tenant.
+
+    Kept separate from rendering so a caller can cache the expensive Graph
+    round trip and still apply different filters and thresholds per request.
+    Only include_sp changes what is fetched; everything else is post-processing.
+    """
+    return collect_credentials(get_token(cfg), cfg.include_sp)
+
+
+def build_result(creds, cfg):
+    """Turn raw credentials into the result structure used by every renderer."""
     channels = build_channels(creds, cfg)
     return {
         "tenant": cfg.key,
@@ -390,6 +399,11 @@ def scan_tenant(cfg):
         "summary": summarize(channels, cfg),
         "channels": channels,
     }
+
+
+def scan_tenant(cfg):
+    """Run a full scan for one tenant and return channels plus summary."""
+    return build_result(fetch_credentials(cfg), cfg)
 
 
 # --------------------------------------------------------------------------
