@@ -89,7 +89,8 @@ param(
     [ValidateRange(1, 24)][int]$SecretMonths = 24,
     [string]$OutFile,
     [switch]$UseDeviceCode,
-    [switch]$UseExistingApp
+    [switch]$UseExistingApp,
+    [string]$ExistingAppId
 )
 
 $ErrorActionPreference = 'Stop'
@@ -247,14 +248,52 @@ Write-Host ("   Signed in as {0}" -f $context.Account)
 
 # --- Guard against duplicates ---------------------------------------------
 
-$existing = Get-MgApplication -Filter "displayName eq '$DisplayName'" -ErrorAction SilentlyContinue
+function Find-MonitorApplication {
+    <#
+    .SYNOPSIS
+        Looks up an app registration by AppId or display name.
+    .DESCRIPTION
+        Server-side filtering on displayName has been observed to return objects
+        with empty properties, so the result is validated and a client-side scan
+        is used as a fallback.
+    .PARAMETER AppId
+        Application (client) ID to look up directly. Wins over Name.
+    .PARAMETER Name
+        Display name to search for.
+    .OUTPUTS
+        The application object, or $null when nothing usable was found.
+    #>
+    param(
+        [string]$AppId,
+        [string]$Name
+    )
 
-if ($existing -and -not $UseExistingApp) {
-    throw "An app registration named '$DisplayName' already exists (AppId $($existing[0].AppId)). Re-run with -UseExistingApp to attach a credential to it, or pass -DisplayName to create a separate one."
+    if ($AppId) {
+        $found = Get-MgApplication -Filter "appId eq '$AppId'" -ErrorAction SilentlyContinue
+        $found = @($found) | Where-Object { $_.AppId } | Select-Object -First 1
+        if (-not $found) {
+            throw "No app registration with AppId $AppId found in this tenant."
+        }
+        return $found
+    }
+
+    $found = @(Get-MgApplication -Filter "displayName eq '$Name'" -ErrorAction SilentlyContinue) |
+        Where-Object { $_.AppId } | Select-Object -First 1
+    if ($found) { return $found }
+
+    # Fallback: enumerate and match locally.
+    Write-Verbose 'Filtered lookup returned nothing usable, scanning all applications'
+    return @(Get-MgApplication -All -ErrorAction SilentlyContinue) |
+        Where-Object { $_.DisplayName -eq $Name -and $_.AppId } | Select-Object -First 1
 }
 
-$action = if ($existing) { "Attach credential to existing app '$DisplayName'" }
-          else { "Create app registration '$DisplayName' with $PermissionName" }
+$existing = Find-MonitorApplication -AppId $ExistingAppId -Name $DisplayName
+
+if ($existing -and -not ($UseExistingApp -or $ExistingAppId)) {
+    throw "An app registration named '$DisplayName' already exists (AppId $($existing.AppId)). Re-run with -UseExistingApp to attach a credential to it, or pass -DisplayName to create a separate one."
+}
+
+$action = if ($existing) { "Attach credential to existing app '$DisplayName'" } else { "Create app registration '$DisplayName' with $PermissionName" }
 if (-not $PSCmdlet.ShouldProcess($TenantId, $action)) {
     return
 }
@@ -263,24 +302,30 @@ if (-not $PSCmdlet.ShouldProcess($TenantId, $action)) {
 # Every step below is idempotent, so a run that failed halfway can be repeated.
 
 if ($existing) {
-    $app = $existing[0]
+    $app = $existing
     Write-Host '== Reusing existing app registration ==' -ForegroundColor Yellow
 } else {
     Write-Host '== Creating app registration ==' -ForegroundColor Cyan
     $app = New-MgApplication -DisplayName $DisplayName -SignInAudience 'AzureADMyOrg' `
         -Notes "Read-only credential expiry monitoring. Created $(Get-Date -Format 'yyyy-MM-dd')."
 }
+
+if (-not $app.AppId -or -not $app.Id) {
+    throw "The application object came back without AppId or ObjectId. Re-run with -ExistingAppId <appid> to address it directly."
+}
 Write-Host ("   AppId    : {0}" -f $app.AppId)
 Write-Host ("   ObjectId : {0}" -f $app.Id)
 
 Write-Host '== Service principal ==' -ForegroundColor Cyan
-$sp = Get-MgServicePrincipal -Filter "appId eq '$($app.AppId)'" -ErrorAction SilentlyContinue
+$sp = @(Get-MgServicePrincipal -Filter "appId eq '$($app.AppId)'" -ErrorAction SilentlyContinue) |
+    Where-Object { $_.Id } | Select-Object -First 1
 if ($sp) {
     Write-Host '   Already present'
 } else {
     $sp = Invoke-WithRetry { New-MgServicePrincipal -AppId $app.AppId }
+    $sp = @($sp) | Where-Object { $_.Id } | Select-Object -First 1
 }
-$sp = @($sp)[0]
+if (-not $sp.Id) { throw "Could not resolve the service principal for AppId $($app.AppId)." }
 Write-Host ("   SP ObjectId : {0}" -f $sp.Id)
 
 # --- Permission and consent -----------------------------------------------
