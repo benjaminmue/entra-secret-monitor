@@ -1,6 +1,9 @@
 # Secrets and local configuration
 .env
-config/*.json
+*.env
+!.env.example
+# Nothing from config/ is tracked except the example
+config/*
 !config/tenants.example.json
 *.crt
 *.key
