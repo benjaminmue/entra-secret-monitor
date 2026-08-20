@@ -157,6 +157,34 @@ Channels:
 | Abgelaufen | number of expired credentials | error > 0 |
 | `<app> (Secret)` / `<app> (Zertifikat)` | remaining runtime per app | warning / error as above |
 
+### One sensor per application
+
+`/prtg` accepts per-request overrides, so one tenant can feed several sensors
+without a second configuration entry:
+
+| Parameter | Effect |
+|---|---|
+| `filter=` | only apps whose display name contains this text |
+| `exclude=` | comma separated fragments to drop |
+| `warn=` / `error=` | thresholds in days for this sensor |
+| `show_expired=true` | include already expired credentials |
+| `max_channels=` | channel cap for this sensor |
+
+```
+# everything except the self-renewing Connect certificate, 30/14 days
+/prtg?tenant=contoso&exclude=ConnectSyncProvisioning
+
+# the Connect certificate on its own, 10/5 days, so a stalled sync still shows
+/prtg?tenant=contoso&filter=ConnectSyncProvisioning&warn=10&error=5
+
+# one application, one sensor
+/prtg?tenant=contoso&filter=KeyCloak
+```
+
+Only the Graph round trip is cached, filtering happens per request, so extra
+sensors cost no extra Graph calls. `include_sp` is not overridable for that
+reason: it would change what the shared cache holds.
+
 **Push** - sensor type **HTTP Push Data Advanced**: set `PUSH_URL` per tenant and
 `PUSH_INTERVAL=21600`. Use this when PRTG cannot reach the container.
 

@@ -7,6 +7,8 @@ HTTP service of the Entra ID credential expiry monitor.
 Serves the same data in three shapes:
   GET /                       web GUI, all configured tenants
   GET /prtg?tenant=<key>      PRTG XML for an HTTP Data Advanced sensor
+                              optional: &filter= &exclude= &warn= &error=
+                              &show_expired= &max_channels=
   GET /json[?tenant=<key>]    raw JSON
   GET /refresh?tenant=<key>   drop the cache entry and reload
   GET /healthz                liveness probe, never requires a token
@@ -26,6 +28,7 @@ import os
 import threading
 import time
 import urllib.parse
+from dataclasses import replace
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from secrets import compare_digest
@@ -46,17 +49,53 @@ _cache_lock = threading.Lock()
 # Scanning with cache
 # --------------------------------------------------------------------------
 
-def get_result(cfg, force=False):
-    """Return a scan result for one tenant, reusing the cache within the TTL."""
+def get_credentials(cfg, force=False):
+    """
+    Return the raw credential list for one tenant, cached within the TTL.
+
+    Only the Graph round trip is cached. Filters and thresholds are applied
+    afterwards, so several sensors can hit the same tenant with different
+    query parameters without triggering extra requests.
+    """
     now = time.time()
     with _cache_lock:
         entry = _cache.get(cfg.key)
         if entry and not force and now - entry[0] < CACHE_TTL:
             return entry[1]
-    result = graph.scan_tenant(cfg)
+    creds = graph.fetch_credentials(cfg)
     with _cache_lock:
-        _cache[cfg.key] = (now, result)
-    return result
+        _cache[cfg.key] = (now, creds)
+    return creds
+
+
+def get_result(cfg, force=False):
+    """Return a rendered scan result for one tenant."""
+    return graph.build_result(get_credentials(cfg, force), cfg)
+
+
+def apply_overrides(cfg, params):
+    """
+    Copy the tenant config with per-request overrides from the query string.
+
+    Lets one tenant feed several PRTG sensors, for example one sensor per
+    application with its own thresholds. include_sp is deliberately not
+    overridable because it would change what the shared cache holds.
+    """
+    changes = {}
+    if "filter" in params:
+        changes["app_filter"] = params["filter"][0]
+    if "exclude" in params:
+        changes["app_exclude"] = params["exclude"][0]
+    if "show_expired" in params:
+        changes["show_expired"] = params["show_expired"][0].lower() in ("1", "true", "yes")
+    for name, field in (("warn", "warn_days"), ("error", "error_days"),
+                        ("max_channels", "max_channels")):
+        if name in params:
+            try:
+                changes[field] = int(params[name][0])
+            except ValueError:
+                raise ValueError("Parameter '%s' ist keine Zahl: %s" % (name, params[name][0]))
+    return replace(cfg, **changes) if changes else cfg
 
 
 def get_result_safe(cfg, force=False):
@@ -300,12 +339,12 @@ class Handler(BaseHTTPRequestHandler):
         selected = [tenants[wanted]] if wanted else list(tenants.values())
 
         if route == "/prtg":
-            cfg = selected[0]
             if len(selected) > 1:
                 self._send(200, graph.render_prtg_error(
                     "Bitte ?tenant= angeben (%s)" % ", ".join(sorted(tenants))), "text/xml")
                 return
             try:
+                cfg = apply_overrides(selected[0], params)
                 result = get_result(cfg)
                 self._send(200, graph.render_prtg(result, cfg), "text/xml")
             except Exception as exc:                      # noqa: BLE001
@@ -314,7 +353,7 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         if route == "/json":
-            results = [get_result_safe(cfg, force) for cfg in selected]
+            results = [get_result_safe(apply_overrides(cfg, params), force) for cfg in selected]
             body = results[0] if len(results) == 1 and wanted else results
             self._send(200, json.dumps(body, indent=2, ensure_ascii=False), "application/json")
             return
