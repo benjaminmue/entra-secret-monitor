@@ -23,8 +23,7 @@ USER 10001
 EXPOSE 8099
 
 HEALTHCHECK --interval=60s --timeout=5s --start-period=10s --retries=3 \
-    CMD python3 -c "import urllib.request,os,sys; \
-sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:'+os.environ.get('LISTEN_PORT','8099')+'/healthz', timeout=4).status==200 else 1)"
+    CMD ["python3", "/app/healthcheck.py"]
 
 ENTRYPOINT ["python3"]
 CMD ["/app/server.py"]
