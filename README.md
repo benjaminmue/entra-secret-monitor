@@ -125,6 +125,7 @@ Alternatively mount a `tenants.json` (see `config/tenants.example.json`) and poi
 | `WARN_DAYS` / `ERROR_DAYS` | 30 / 14 | thresholds in days |
 | `INCLUDE_SP` | false | include service principals / enterprise apps |
 | `APP_FILTER` | empty | only apps whose display name contains this text |
+| `APP_EXCLUDE` | empty | comma separated list of display name fragments to drop; wins over `APP_FILTER` |
 | `SHOW_EXPIRED` | false | also report already expired credentials |
 | `MAX_CHANNELS` | 45 | PRTG allows 50 channels per sensor |
 | `PUSH_URL` | empty | PRTG HTTP Push Data Advanced sensor URL |
@@ -194,7 +195,7 @@ Restlaufzeit     Ablauf       Typ      App / Credential
 2 entries, 0 expired, 1 below 30 days
 ```
 
-`--format prtg|json|text`, `--warn`, `--error`, `--filter`, `--include-sp`,
+`--format prtg|json|text`, `--warn`, `--error`, `--filter`, `--exclude`, `--include-sp`,
 `--show-expired`, `--max-channels`, `--push`, `--list-tenants`.
 
 ## Security
@@ -211,6 +212,11 @@ Restlaufzeit     Ablauf       Typ      App / Credential
 - GUI labels and PRTG channel names are German. Renaming them later renames the
   PRTG channels too, which loses their history, so it is not a cosmetic change.
   See `STRINGS` candidates in `app/graph.py` and `app/server.py` if you fork.
+- Entra Connect rolls its own `ConnectSyncProvisioning_*` certificate every few
+  months. It dips below a 30 day warning threshold on every cycle and recovers on
+  its own. Either exclude it with `APP_EXCLUDE=ConnectSyncProvisioning` or give it
+  its own sensor with a lower threshold, so a genuinely stalled Connect server is
+  still caught.
 - PRTG caps sensors at 50 channels. Large tenants need `APP_FILTER`,
   `MAX_CHANNELS`, or one sensor per app group.
 - Certificate authentication requires the `cryptography` package. Client secret

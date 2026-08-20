@@ -7,6 +7,7 @@
     "key_path": "/config/contoso.key",
     "include_sp": false,
     "app_filter": "",
+    "app_exclude": "",
     "show_expired": false,
     "warn_days": 30,
     "error_days": 14,
