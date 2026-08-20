@@ -50,6 +50,7 @@ class TenantConfig:
     key_path: str = ""
     include_sp: bool = False
     app_filter: str = ""
+    app_exclude: str = ""
     show_expired: bool = False
     warn_days: int = 30
     error_days: int = 14
@@ -107,6 +108,7 @@ def tenant_from_env(key, env=None):
         key_path=get("KEY_PATH"),
         include_sp=_as_bool(get("INCLUDE_SP"), False),
         app_filter=get("APP_FILTER"),
+        app_exclude=get("APP_EXCLUDE"),
         show_expired=_as_bool(get("SHOW_EXPIRED"), False),
         warn_days=_as_int(get("WARN_DAYS"), 30),
         error_days=_as_int(get("ERROR_DAYS"), 14),
@@ -127,6 +129,7 @@ def tenant_from_dict(key, data):
         key_path=data.get("key_path", ""),
         include_sp=bool(data.get("include_sp", False)),
         app_filter=data.get("app_filter", ""),
+        app_exclude=data.get("app_exclude", ""),
         show_expired=bool(data.get("show_expired", False)),
         warn_days=int(data.get("warn_days", 30)),
         error_days=int(data.get("error_days", 14)),
@@ -326,10 +329,19 @@ def build_channels(creds, cfg):
 
     A freshly rolled secret makes the old one irrelevant, so the maximum per
     group is the value that actually describes the risk for that app.
+
+    app_filter keeps only matching apps, app_exclude drops them. Both match on a
+    lowercased substring of the display name; app_exclude takes a comma separated
+    list and wins over app_filter.
     """
+    excludes = [e.strip().lower() for e in (cfg.app_exclude or "").split(",") if e.strip()]
+
     groups = {}
     for cred in creds:
-        if cfg.app_filter and cfg.app_filter.lower() not in cred.app_name.lower():
+        name = cred.app_name.lower()
+        if cfg.app_filter and cfg.app_filter.lower() not in name:
+            continue
+        if any(e in name for e in excludes):
             continue
         groups.setdefault((cred.app_name, cred.cred_type), []).append(cred)
 

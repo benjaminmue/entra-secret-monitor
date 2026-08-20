@@ -30,6 +30,8 @@ def parse_args(argv=None):
     parser.add_argument("--error", type=int, default=None, help="Fehlerschwelle in Tagen")
     parser.add_argument("--filter", default=None,
                         help="nur Apps deren Anzeigename diesen Text enthaelt")
+    parser.add_argument("--exclude", default=None,
+                        help="Apps ausschliessen, kommagetrennte Textbausteine")
     parser.add_argument("--include-sp", action="store_true", default=None,
                         help="Service Principals / Enterprise Apps mit einbeziehen")
     parser.add_argument("--show-expired", action="store_true", default=None,
@@ -51,6 +53,8 @@ def apply_overrides(cfg, args):
         cfg.error_days = args.error
     if args.filter is not None:
         cfg.app_filter = args.filter
+    if args.exclude is not None:
+        cfg.app_exclude = args.exclude
     if args.include_sp:
         cfg.include_sp = True
     if args.show_expired:
