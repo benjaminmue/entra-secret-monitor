@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Zweiter Faktor</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='portal.css') }}">
+</head>
+<body>
+<div class="login-wrap">
+  <div class="login-brand">Entra Credential <span>Monitor</span></div>
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% for category, message in messages %}
+      <div class="flash {{ category }}">{{ message }}</div>
+    {% endfor %}
+  {% endwith %}
+  <div class="card">
+    <h2>Bestätigungscode</h2>
+    <form method="post" class="stack">
+      {{ form.csrf_token }}
+      <div class="field">
+        {{ form.code.label }}
+        {{ form.code(autofocus=true, autocomplete="one-time-code", inputmode="numeric",
+                     placeholder="123456") }}
+        <span class="hint">Sechsstelliger Code aus der Authenticator-App oder ein
+          Recovery-Code.</span>
+      </div>
+      <div class="actions">
+        <button class="btn" type="submit">Anmelden</button>
+        <a class="btn ghost" href="{{ url_for('auth.login') }}">Abbrechen</a>
+      </div>
+    </form>
+  </div>
+</div>
+</body>
+</html>

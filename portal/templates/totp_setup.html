@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Zwei-Faktor einrichten</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='portal.css') }}">
+</head>
+<body>
+<div class="login-wrap" style="max-width:560px">
+  <div class="login-brand">Entra Credential <span>Monitor</span></div>
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% for category, message in messages %}
+      <div class="flash {{ category }}">{{ message }}</div>
+    {% endfor %}
+  {% endwith %}
+  <div class="card">
+    <h2>Zwei-Faktor-Authentisierung {{ 'neu einrichten' if reenroll else 'einrichten' }}</h2>
+    {% if reenroll %}
+    <div class="flash warn">Die bisherige Authenticator-App und alle bestehenden
+      Recovery-Codes verlieren mit dem Abschluss ihre Gültigkeit.</div>
+    {% endif %}
+    <p class="lead">Der Zugang ist ohne zweiten Faktor nicht nutzbar. QR-Code mit
+      Microsoft Authenticator, Google Authenticator oder einer vergleichbaren App
+      scannen und den angezeigten Code eintragen.</p>
+    <div class="qr">{{ qr|safe }}</div>
+    <h3>Manuelle Eingabe</h3>
+    <p class="mono">{{ secret }}</p>
+    <form method="post" class="stack">
+      {{ form.csrf_token }}
+      <div class="field">
+        {{ form.code.label }}
+        {{ form.code(autofocus=true, autocomplete="one-time-code", inputmode="numeric",
+                     placeholder="123456") }}
+      </div>
+      <div class="actions">
+        <button class="btn" type="submit">Einrichten und anmelden</button>
+      </div>
+    </form>
+  </div>
+</div>
+</body>
+</html>

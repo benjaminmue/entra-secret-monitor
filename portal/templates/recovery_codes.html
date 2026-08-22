@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block title %}Recovery-Codes{% endblock %}
+{% block content %}
+<h1>Recovery-Codes</h1>
+<p class="lead">Ersatz für den Fall, dass die Authenticator-App nicht mehr verfügbar ist.
+  Jeder Code funktioniert genau einmal.</p>
+
+{% if codes %}
+<div class="card">
+  <h2>Einmalig sichtbar</h2>
+  <div class="note warn">Diese Liste steht nur auf dieser Seite. Sie wird weder
+    gespeichert noch erneut angezeigt, auch nicht nach einem Neuladen. Jetzt ausdrucken
+    oder im Passwortmanager ablegen.</div>
+  <div class="codes">
+    {% for code in codes %}<span>{{ code }}</span>{% endfor %}
+  </div>
+</div>
+{% else %}
+<div class="card">
+  <h2>Status</h2>
+  <p>Noch nicht verbrauchte Codes: <strong>{{ remaining }}</strong></p>
+  <p class="lead">Neue Codes entstehen, wenn ein Administrator den zweiten Faktor
+    zurücksetzt und die Einrichtung erneut durchlaufen wird.</p>
+</div>
+{% endif %}
+<a class="btn" href="{{ url_for('dashboard.index') }}">Weiter zur Übersicht</a>
+{% endblock %}

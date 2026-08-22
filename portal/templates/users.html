@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+{% block title %}Benutzer{% endblock %}
+{% block content %}
+<h1>Benutzer</h1>
+<p class="lead">Jedes Konto benötigt Passwort und zweiten Faktor. Neue Konten erhalten ein
+  Einmalpasswort und richten die Authenticator-App bei der ersten Anmeldung ein.</p>
+
+<div class="actions" style="margin-bottom:20px">
+  <a class="btn" href="{{ url_for('users.create') }}">Konto anlegen</a>
+</div>
+
+<div class="card">
+  <h2>Konten</h2>
+  <div class="scroll">
+  <table>
+    <thead><tr>
+      <th>Benutzername</th><th class="wrap">Name</th><th>Rolle</th><th>Status</th>
+      <th>2FA</th><th>Letzte Anmeldung</th><th>Aktionen</th>
+    </tr></thead>
+    <tbody>
+      {% for user in users %}
+      <tr>
+        <td class="mono">{{ user.username }}</td>
+        <td class="wrap">{{ user.display_name }}<br><span class="hint">{{ user.email }}</span></td>
+        <td>{{ user.role_label }}</td>
+        <td>
+          {% if user.is_active %}<span class="badge b-ok">aktiv</span>
+          {% else %}<span class="badge b-muted">gesperrt</span>{% endif %}
+          {% if user.must_change_password %}
+            <span class="badge b-warn">Passwortwechsel</span>{% endif %}
+        </td>
+        <td>{% if user.totp_ready %}<span class="badge b-ok">eingerichtet</span>
+            {% else %}<span class="badge b-warn">offen</span>{% endif %}</td>
+        <td class="mono">{{ user.last_login_at.strftime('%Y-%m-%d %H:%M')
+          if user.last_login_at else '-' }}</td>
+        <td>
+          <div class="actions">
+            <a class="btn ghost small"
+               href="{{ url_for('users.edit', user_id=user.id) }}">Bearbeiten</a>
+            <form method="post" action="{{ url_for('users.reset_password', user_id=user.id) }}"
+                  class="inline">
+              {{ form.csrf_token }}
+              <button class="btn ghost small" type="submit">Passwort</button>
+            </form>
+            <form method="post" action="{{ url_for('users.reset_totp', user_id=user.id) }}"
+                  class="inline">
+              {{ form.csrf_token }}
+              <button class="btn ghost small" type="submit">2FA</button>
+            </form>
+            {% if user.id != current_user.id %}
+            <form method="post" action="{{ url_for('users.delete', user_id=user.id) }}"
+                  class="inline">
+              {{ form.csrf_token }}
+              <button class="btn danger small" type="submit">Löschen</button>
+            </form>
+            {% endif %}
+          </div>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,100 @@
+{% extends "base.html" %}
+{% block title %}Übersicht{% endblock %}
+
+{% set state_badge = {
+  'ok': ('b-ok', 'in Ordnung'),
+  'warn': ('b-warn', 'Warnung'),
+  'error': ('b-err', 'Fehler'),
+  'stale': ('b-err', 'Daten veraltet'),
+  'unknown': ('b-muted', 'noch nie geprüft'),
+  'inactive': ('b-muted', 'deaktiviert')
+} %}
+
+{% block content %}
+<h1>Kundenübersicht</h1>
+<p class="lead">Restlaufzeit von Client Secrets und Zertifikaten in {{ totals.customers }}
+  Kundentenants. Jeder Kunde wird einmal täglich zu seiner eigenen Uhrzeit geprüft.</p>
+
+<div class="tiles">
+  <div class="tile"><div class="n">{{ totals.active }}</div>
+    <div class="l">Aktiv überwacht</div></div>
+  <div class="tile err"><div class="n">{{ totals.error }}</div>
+    <div class="l">Fehler oder veraltet</div></div>
+  <div class="tile warn"><div class="n">{{ totals.warn }}</div>
+    <div class="l">Warnungen</div></div>
+  <div class="tile ok"><div class="n">{{ totals.credentials }}</div>
+    <div class="l">Überwachte Credentials</div></div>
+</div>
+
+<div class="card">
+  <h2>Kunden</h2>
+  {% if not rows %}
+    <p class="lead">Noch kein Kunde angelegt.
+      {% if may_write %}<a href="{{ url_for('customers.create') }}">Jetzt anlegen</a>.{% endif %}
+    </p>
+  {% else %}
+  <div class="scroll">
+  <table>
+    <thead>
+      <tr>
+        <th class="wrap">Kunde</th>
+        <th>Status</th>
+        <th class="num">Minimale Restlaufzeit</th>
+        <th class="num">Kritisch</th>
+        <th class="num">Abgelaufen</th>
+        <th class="num">Credentials</th>
+        <th>Letzte Prüfung</th>
+        <th>Slot (UTC)</th>
+        <th>PRTG</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in rows %}
+      {% set c = row.customer %}
+      {% set badge = state_badge.get(row.state, ('b-muted', row.state)) %}
+      <tr>
+        <td class="wrap">
+          <a href="{{ url_for('customers.detail', customer_id=c.id) }}">{{ c.display_name }}</a>
+          <div class="hint mono">{{ c.key }}</div>
+        </td>
+        <td><span class="badge {{ badge[0] }}">{{ badge[1] }}</span></td>
+        <td class="num">{{ c.min_days if c.min_days is not none else '-' }}</td>
+        <td class="num">{{ c.count_critical }}</td>
+        <td class="num">{{ c.count_expired }}</td>
+        <td class="num">{{ c.count_total }}</td>
+        <td>
+          {% if row.age_hours < 0 %}nie
+          {% else %}vor {{ row.age_hours }} h{% endif %}
+        </td>
+        <td class="mono">{{ c.slot_label }}</td>
+        <td>{% if may_write %}<a class="mono"
+            href="{{ url_for('prtg.prtg_xml', token=c.prtg_token) }}">XML</a>
+            {% else %}-{% endif %}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% endif %}
+</div>
+
+{% if is_admin and rows %}
+<div class="card">
+  <h2>Zeitplan</h2>
+  <p class="lead">Neue Kunden landen automatisch in der grössten Lücke. Ein Neuverteilen
+    setzt alle Kunden auf gleichmässige Abstände über 24 Stunden.</p>
+  <form method="post" action="{{ url_for('customers.redistribute') }}" class="inline">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <button class="btn ghost" type="submit">Slots neu verteilen</button>
+  </form>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block footer %}
+<span class="dot {{ '' if scheduler.active else 'off' }}"></span>
+Scheduler {{ 'aktiv' if scheduler.active else 'gestoppt' }}
+{%- if scheduler.running %}, läuft gerade gegen {{ scheduler.running }}{% endif %}
+{%- if scheduler.last_tick %}, letzter Durchgang
+  {{ scheduler.last_tick.strftime('%Y-%m-%d %H:%M UTC') }}{% endif %}.<br>
+{% endblock %}

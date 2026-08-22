@@ -1,0 +1,32 @@
+services:
+  entra-credential-portal:
+    build:
+      context: .
+      dockerfile: Dockerfile.portal
+    # image: ghcr.io/<owner>/entra-credential-portal:latest
+    container_name: entra-credential-portal
+    restart: unless-stopped
+    env_file:
+      - .env.portal
+    ports:
+      # Nur lokal binden. TLS und Zugriff gehören vor den Reverse Proxy, das
+      # Portal selbst spricht kein HTTPS.
+      - "127.0.0.1:8099:8099"
+    volumes:
+      # Datenbank und damit alle Kundenzugangsdaten. Muss ins Backup.
+      - portal-data:/data
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  portal-data:

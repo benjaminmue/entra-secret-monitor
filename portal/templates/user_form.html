@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %}{{ 'Konto bearbeiten' if user else 'Konto anlegen' }}{% endblock %}
+{% block content %}
+<h1>{{ 'Konto bearbeiten' if user else 'Konto anlegen' }}</h1>
+<div class="card">
+  <h2>Angaben</h2>
+  <form method="post" class="stack">
+    {{ form.csrf_token }}
+    <div class="grid2">
+      <div class="field">
+        {{ form.username.label }}{{ form.username(readonly=user is not none) }}
+      </div>
+      <div class="field">{{ form.display_name.label }}{{ form.display_name() }}</div>
+      <div class="field">{{ form.email.label }}{{ form.email() }}</div>
+      <div class="field">
+        {{ form.role.label }}{{ form.role() }}
+        <span class="hint">Leser sehen alles, Operator legt Kunden an und löst Prüfungen
+          aus, Administrator verwaltet zusätzlich Konten und löscht Kunden.</span>
+      </div>
+    </div>
+    {% if not user %}
+    <div class="field">
+      {{ form.password.label }}{{ form.password(autocomplete="new-password") }}
+      <span class="hint">Leer lassen erzeugt ein zufälliges Einmalpasswort, das einmalig
+        angezeigt wird.</span>
+    </div>
+    {% endif %}
+    <div class="check">{{ form.is_active() }} {{ form.is_active.label }}</div>
+    <div class="actions">
+      <button class="btn" type="submit">Speichern</button>
+      <a class="btn ghost" href="{{ url_for('users.index') }}">Abbrechen</a>
+    </div>
+  </form>
+</div>
+{% endblock %}

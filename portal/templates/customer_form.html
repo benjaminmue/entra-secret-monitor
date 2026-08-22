@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+{% block title %}{{ 'Kunde bearbeiten' if customer else 'Kunde anlegen' }}{% endblock %}
+{% block content %}
+<h1>{{ 'Kunde bearbeiten' if customer else 'Kunde anlegen' }}</h1>
+<p class="lead">Die Zugangsdaten werden verschlüsselt gespeichert und nie wieder angezeigt.
+  Voraussetzung ist eine App-Registrierung im Kundentenant mit der Anwendungsberechtigung
+  <code>Application.Read.All</code>. Schritt für Schritt steht das in der
+  <a href="{{ url_for('docs.index') }}">Anleitung</a>.</p>
+
+<form method="post" class="stack wide">
+  {{ form.csrf_token }}
+
+  <div class="card">
+    <h2>Kunde</h2>
+    <div class="grid2">
+      <div class="field">
+        {{ form.key.label }}
+        {{ form.key(readonly=customer is not none) }}
+        <span class="hint">Technischer Schlüssel, erscheint in der PRTG-URL und im Log.
+          Nach dem Anlegen unveränderlich.</span>
+      </div>
+      <div class="field">{{ form.display_name.label }}{{ form.display_name() }}</div>
+      <div class="field">
+        {{ form.tenant_id.label }}{{ form.tenant_id() }}
+        <span class="hint">Entra-Portal, Übersicht, Verzeichnis-ID.</span>
+      </div>
+      <div class="field">
+        {{ form.client_id.label }}{{ form.client_id() }}
+        <span class="hint">App-Registrierung, Übersicht, Anwendungs-ID.</span>
+      </div>
+    </div>
+    <div class="check">{{ form.is_active() }} {{ form.is_active.label }}</div>
+  </div>
+
+  <div class="card">
+    <h2>Authentisierung</h2>
+    <div class="field">
+      {{ form.auth_type.label }}{{ form.auth_type() }}
+      <span class="hint">Zertifikate laufen bis zu zehn Jahre, Client Secrets kappt Entra
+        bei 24 Monaten. Für 50 Kunden ist das Zertifikat der wartungsärmere Weg.</span>
+    </div>
+    <div class="field">
+      {{ form.client_secret.label }}{{ form.client_secret(autocomplete="new-password") }}
+      <span class="hint">Nur bei Auswahl "Client Secret" ausfüllen.
+        {% if customer %}Leer lassen behält den gespeicherten Wert.{% endif %}</span>
+    </div>
+    <div class="field">
+      {{ form.cert_pem.label }}{{ form.cert_pem(spellcheck="false") }}
+      <span class="hint">PEM inklusive BEGIN- und END-Zeile.</span>
+    </div>
+    <div class="field">
+      {{ form.key_pem.label }}{{ form.key_pem(spellcheck="false") }}
+      <span class="hint">Unverschlüsselter privater Schlüssel im PKCS8-Format.
+        Wird sofort verschlüsselt abgelegt.</span>
+    </div>
+    {% if customer and customer.cert_thumbprint %}
+    <div class="note">Hinterlegtes Zertifikat: <span class="mono">{{ customer.cert_thumbprint }}</span>,
+      gültig bis {{ customer.cert_not_after.strftime('%Y-%m-%d') if customer.cert_not_after }}.</div>
+    {% endif %}
+  </div>
+
+  <div class="card">
+    <h2>Schwellen und Umfang</h2>
+    <div class="grid2">
+      <div class="field">{{ form.warn_days.label }}{{ form.warn_days() }}</div>
+      <div class="field">{{ form.error_days.label }}{{ form.error_days() }}</div>
+      <div class="field">{{ form.max_channels.label }}{{ form.max_channels() }}</div>
+      <div class="field">
+        {{ form.app_filter.label }}{{ form.app_filter() }}
+        <span class="hint">Leer = alle Anwendungen.</span>
+      </div>
+      <div class="field">
+        {{ form.app_exclude.label }}{{ form.app_exclude() }}
+        <span class="hint">Zum Beispiel selbst rotierende Zertifikate wie
+          <span class="mono">ConnectSyncProvisioning</span>.</span>
+      </div>
+    </div>
+    <div class="check">{{ form.include_sp() }} {{ form.include_sp.label }}</div>
+    <div class="check">{{ form.show_expired() }} {{ form.show_expired.label }}</div>
+    <div class="field">{{ form.notes.label }}{{ form.notes() }}</div>
+  </div>
+
+  <div class="actions">
+    <button class="btn" type="submit">
+      {{ 'Speichern' if customer else 'Anlegen und prüfen' }}</button>
+    <a class="btn ghost" href="{{ url_for('customers.detail', customer_id=customer.id)
+       if customer else url_for('dashboard.index') }}">Abbrechen</a>
+  </div>
+</form>
+{% endblock %}

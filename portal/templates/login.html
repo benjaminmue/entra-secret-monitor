@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Anmeldung</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='portal.css') }}">
+</head>
+<body>
+<div class="login-wrap">
+  <div class="login-brand">Entra Credential <span>Monitor</span></div>
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% for category, message in messages %}
+      <div class="flash {{ category }}">{{ message }}</div>
+    {% endfor %}
+  {% endwith %}
+  <div class="card">
+    <h2>Anmeldung</h2>
+    <form method="post" class="stack">
+      {{ form.csrf_token }}
+      <div class="field">
+        {{ form.username.label }}
+        {{ form.username(autofocus=true, autocomplete="username") }}
+      </div>
+      <div class="field">
+        {{ form.password.label }}
+        {{ form.password(autocomplete="current-password") }}
+      </div>
+      <div class="actions">
+        <button class="btn" type="submit">Weiter</button>
+      </div>
+    </form>
+  </div>
+  <p class="lead" style="text-align:center;font-size:12px">
+    Zweiter Faktor erforderlich. Nach der Passworteingabe folgt der Code aus der
+    Authenticator-App.</p>
+</div>
+</body>
+</html>
