@@ -37,7 +37,7 @@ def parse_args(argv=None):
     parser.add_argument("--show-expired", action="store_true", default=None,
                         help="bereits abgelaufene Credentials ebenfalls ausgeben")
     parser.add_argument("--max-channels", type=int, default=None,
-                        help="PRTG unterstuetzt max. 50 Kanaele pro Sensor")
+                        help="PRTG unterstützt max. 50 Kanäle pro Sensor")
     parser.add_argument("--push", default=None,
                         help="URL eines HTTP Push Data Advanced Sensors")
     parser.add_argument("--list-tenants", action="store_true",
