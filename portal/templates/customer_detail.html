@@ -1,0 +1,159 @@
+{% extends "base.html" %}
+{% block title %}{{ customer.display_name }}{% endblock %}
+
+{% set state_badge = {
+  'ok': ('b-ok', 'in Ordnung'), 'warn': ('b-warn', 'Warnung'),
+  'error': ('b-err', 'Fehler'), 'stale': ('b-err', 'Daten veraltet'),
+  'unknown': ('b-muted', 'noch nie geprüft'), 'inactive': ('b-muted', 'deaktiviert')
+} %}
+
+{% block content %}
+{% set badge = state_badge.get(state, ('b-muted', state)) %}
+<h1>{{ customer.display_name }} <span class="badge {{ badge[0] }}">{{ badge[1] }}</span></h1>
+<p class="lead"><span class="mono">{{ customer.key }}</span> &middot; Tenant
+  <span class="mono">{{ customer.tenant_id }}</span> &middot; Anmeldung
+  {{ customer.auth_label }} &middot; täglicher Slot {{ customer.slot_label }} UTC</p>
+
+<div class="actions toolbar">
+  {% if may_write %}
+  <form method="post" action="{{ url_for('customers.force', customer_id=customer.id) }}"
+        class="inline">
+    {{ form.csrf_token }}
+    <button class="btn" type="submit">Jetzt prüfen</button>
+  </form>
+  <a class="btn ghost" href="{{ url_for('customers.edit', customer_id=customer.id) }}">
+    Bearbeiten</a>
+  {% endif %}
+  {% if may_write %}
+  <a class="btn ghost" href="{{ url_for('prtg.prtg_xml', token=customer.prtg_token) }}">
+    PRTG-XML öffnen</a>
+  <a class="btn ghost" href="{{ url_for('prtg.prtg_json', token=customer.prtg_token) }}">
+    JSON</a>
+  {% endif %}
+  <span class="spacer"></span>
+  {% if is_admin %}
+  <form method="post" action="{{ url_for('customers.delete', customer_id=customer.id) }}"
+        class="inline">
+    {{ form.csrf_token }}
+    <button class="btn danger small" type="submit">Kunde löschen</button>
+  </form>
+  {% endif %}
+</div>
+
+{% if customer.last_error %}
+<div class="flash error">Letzter Fehler: {{ customer.last_error }}</div>
+{% endif %}
+
+<div class="tiles">
+  <div class="tile"><div class="n">{{ customer.min_days if customer.min_days is not none
+    else '-' }}</div><div class="l">Minimale Restlaufzeit (Tage)</div></div>
+  <div class="tile warn"><div class="n">{{ customer.count_critical }}</div>
+    <div class="l">Unter Warngrenze ({{ customer.warn_days }} Tage)</div></div>
+  <div class="tile err"><div class="n">{{ customer.count_expired }}</div>
+    <div class="l">Abgelaufen</div></div>
+  <div class="tile ok"><div class="n">{{ customer.count_total }}</div>
+    <div class="l">Überwachte Credentials</div></div>
+</div>
+
+{% if may_write %}
+<div class="card">
+  <h2>PRTG-Sensor</h2>
+  <p class="lead">HTTP Data Advanced, Intervall sechs Stunden. Der Abruf liest den
+    gespeicherten Stand, die Graph-Abfrage passiert einmal täglich im Hintergrund.</p>
+  <pre>{{ prtg_url }}</pre>
+  <p class="hint">Derselbe Token bedient mehrere Sensoren. Anhängbar sind
+    <span class="mono">?app=</span> (genau eine Anwendung),
+    <span class="mono">?filter=</span> (Namensteil),
+    <span class="mono">?exclude=</span> (kommagetrennt),
+    <span class="mono">?type=secret|cert</span> sowie
+    <span class="mono">?warn=</span> und <span class="mono">?error=</span> für eigene
+    Schwellen. Gefiltert wird der gespeicherte Stand, ein zusätzlicher Sensor kostet
+    also keine weitere Graph-Anfrage.</p>
+  {% if may_write %}
+  <form method="post" action="{{ url_for('customers.rotate_token', customer_id=customer.id) }}"
+        class="inline">
+    {{ form.csrf_token }}
+    <button class="btn ghost small" type="submit">Token neu erzeugen</button>
+  </form>
+  {% endif %}
+</div>
+{% endif %}
+
+<div class="card">
+  <h2>Credentials</h2>
+  {% if not credentials %}
+    <p class="lead">Kein gespeicherter Stand. Prüfung auslösen oder Fehler oben beachten.</p>
+  {% else %}
+  <div class="scroll">
+  <table>
+    <thead><tr>
+      <th class="num">Restlaufzeit</th><th>Ablauf</th><th>Typ</th>
+      <th class="wrap">Anwendung</th><th class="wrap">Credential</th>
+      <th>Objekt</th><th class="num">Anzahl</th><th>Sensor</th>
+    </tr></thead>
+    <tbody>
+      {% for cred in credentials %}
+      <tr>
+        <td class="num">
+          {% if cred.days_left < customer.error_days %}
+            <span class="badge b-err">{{ cred.days_left }} Tage</span>
+          {% elif cred.days_left < customer.warn_days %}
+            <span class="badge b-warn">{{ cred.days_left }} Tage</span>
+          {% else %}
+            <span class="badge b-ok">{{ cred.days_left }} Tage</span>
+          {% endif %}
+        </td>
+        <td class="mono">{{ cred.end_date.strftime('%Y-%m-%d') }}</td>
+        <td>{{ cred.type_label }}</td>
+        <td class="wrap">{{ cred.app_name }}</td>
+        <td class="wrap">{{ cred.cred_name }}</td>
+        <td>{{ cred.object_label }}</td>
+        <td class="num">{{ cred.sibling_count }}</td>
+        <td>{% if may_write %}<a class="mono"
+               href="{{ url_for('prtg.prtg_xml', token=customer.prtg_token,
+               app=cred.app_name, type=cred.cred_type) }}">XML</a>{% else %}-{% endif %}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  <p class="hint">Je Anwendung und Typ zählt die längste Restlaufzeit. Ein frisch erneuertes
+    Secret macht das alte irrelevant. Der Link <span class="mono">XML</span> liefert einen
+    Sensor für genau diese eine Anwendung, Schwellen lassen sich mit
+    <span class="mono">&amp;warn=10&amp;error=5</span> anhängen.</p>
+  {% endif %}
+</div>
+
+<div class="card">
+  <h2>Letzte Läufe</h2>
+  <div class="scroll">
+  <table>
+    <thead><tr><th>Start</th><th>Auslöser</th><th>Status</th><th class="num">Dauer</th>
+      <th class="num">Credentials</th><th class="wrap">Meldung</th></tr></thead>
+    <tbody>
+      {% for run in runs %}
+      <tr>
+        <td class="mono">{{ run.started_at.strftime('%Y-%m-%d %H:%M') }}</td>
+        <td>{{ run.trigger }}{% if run.triggered_by %} ({{ run.triggered_by }}){% endif %}</td>
+        <td><span class="badge {{ 'b-ok' if run.status == 'ok' else 'b-err' }}">
+          {{ run.status }}</span></td>
+        <td class="num">{{ run.duration_ms }} ms</td>
+        <td class="num">{{ run.count_total }}</td>
+        <td class="wrap">{{ run.error_message }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</div>
+
+{% if customer.notes %}
+<div class="card"><h2>Notizen</h2><p>{{ customer.notes }}</p></div>
+{% endif %}
+{% endblock %}
+
+{% block footer %}
+Letzte Prüfung: {{ customer.last_check_at.strftime('%Y-%m-%d %H:%M UTC')
+  if customer.last_check_at else 'nie' }}
+{%- if age_hours >= 0 %} (vor {{ age_hours }} Stunden){% endif %}.<br>
+{% endblock %}

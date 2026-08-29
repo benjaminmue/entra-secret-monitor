@@ -83,14 +83,19 @@ class TenantConfig:
                              % self.key)
 
 
-def _as_bool(value, default=False):
-    """Interpret common truthy strings from environment variables."""
+def as_bool(value, default=False):
+    """
+    Interpret common truthy strings from environment variables.
+
+    Public rather than private because portal/config.py reads the same kind of
+    variables and would otherwise keep its own identical copy.
+    """
     if value is None or value == "":
         return default
     return str(value).strip().lower() in ("1", "true", "yes", "ja", "on")
 
 
-def _as_int(value, default):
+def as_int(value, default):
     """Parse an integer from an environment variable, falling back on default."""
     try:
         return int(str(value).strip())
@@ -145,13 +150,13 @@ def tenant_from_env(key, env=None):
         client_secret=get("CLIENT_SECRET"),
         cert_path=get("CERT_PATH"),
         key_path=get("KEY_PATH"),
-        include_sp=_as_bool(get("INCLUDE_SP"), False),
+        include_sp=as_bool(get("INCLUDE_SP"), False),
         app_filter=get("APP_FILTER"),
         app_exclude=get("APP_EXCLUDE"),
-        show_expired=_as_bool(get("SHOW_EXPIRED"), False),
-        warn_days=_as_int(get("WARN_DAYS"), 30),
-        error_days=_as_int(get("ERROR_DAYS"), 14),
-        max_channels=_as_int(get("MAX_CHANNELS"), 45),
+        show_expired=as_bool(get("SHOW_EXPIRED"), False),
+        warn_days=as_int(get("WARN_DAYS"), 30),
+        error_days=as_int(get("ERROR_DAYS"), 14),
+        max_channels=as_int(get("MAX_CHANNELS"), 45),
         push_url=get("PUSH_URL"),
     )
 

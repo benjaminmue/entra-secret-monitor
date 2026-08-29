@@ -18,6 +18,26 @@ docker compose up -d
 | `http://host:8099/refresh?tenant=<key>` | drop the cache and rescan |
 | `http://host:8099/healthz` | liveness probe, never needs a token |
 
+## Two flavours
+
+**Classic service** (`app/`, `Dockerfile`) is what the rest of this README
+describes: stateless, configured through environment variables, no dependencies
+beyond `cryptography`. Right for a handful of tenants and a host you own.
+
+**Portal** (`portal/`, `Dockerfile.portal`) adds what a managed service provider
+needs for dozens of customers: SQLite persistence, accounts with mandatory TOTP and
+roles, customer onboarding through the browser, encrypted credential storage, one
+scan per customer per day spread over 24 hours, a force check button, and a per
+customer PRTG token that serves the stored snapshot without ever calling Graph.
+
+```
+cp .env.portal.example .env.portal   # fill in the two keys
+docker compose -f docker-compose.portal.yml up -d
+```
+
+Documentation: [docs/PORTAL.md](docs/PORTAL.md) (German). Both share the Graph logic
+in `app/graph.py` and can run side by side.
+
 ## Why
 
 Microsoft gives you a recommendation panel in the portal and a weekly digest mail
@@ -274,10 +294,6 @@ land quietly.
 
 It detects copies, not reinvention: a second implementation written from scratch
 with a different shape will not be caught.
-
-The tool runs on both branches. Here it covers `app/` only; on the portal branch
-it also covers `portal/`, so the generated document differs between them by
-design. After a merge, regenerate rather than resolving it by hand.
 
 ## Known limitations
 

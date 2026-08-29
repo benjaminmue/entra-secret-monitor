@@ -1,0 +1,149 @@
+{% extends "base.html" %}
+{% block title %}Anleitung{% endblock %}
+{% block content %}
+<h1>App-Registrierung im Kundentenant</h1>
+<p class="lead">Pro Kunde wird einmalig eine App-Registrierung mit genau einer
+  Anwendungsberechtigung angelegt. Danach liest das Portal die Ablaufdaten aller
+  Credentials des Tenants, ohne irgendetwas verändern zu können.</p>
+
+<div class="card">
+  <h2>Benötigte Berechtigung</h2>
+  <div class="scroll">
+  <table>
+    <thead><tr><th>API</th><th>Berechtigung</th><th>Typ</th><th>Zustimmung</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>{{ permission.api }}</td>
+        <td class="mono">{{ permission.name }}</td>
+        <td>{{ permission.type }}</td>
+        <td>{{ permission.consent }}</td>
+      </tr>
+    </tbody>
+  </table>
+  </div>
+  <div class="note">Nur lesend. <span class="mono">Application.Read.All</span> erlaubt keine
+    Änderung an App-Registrierungen, keinen Zugriff auf Postfächer, Dateien oder
+    Benutzerdaten. Die ID der Berechtigung lautet
+    <span class="mono">{{ permission.id }}</span>.</div>
+  <div class="note warn">Weder <span class="mono">Directory.Read.All</span> noch eine
+    Verzeichnisrolle sind nötig. Wer beim Konsens versehentlich mehr erteilt, gibt dem
+    Portal mehr Rechte als es je verwendet.</div>
+</div>
+
+<div class="card">
+  <h2>Variante A: mit dem mitgelieferten Skript</h2>
+  <p class="lead">Legt die App-Registrierung an, erzeugt ein Zertifikat, hinterlegt den
+    öffentlichen Teil im Tenant und gibt Zertifikat und Schlüssel als PEM aus.
+    Benötigt PowerShell 7 und einen Anmeldung als Anwendungsadministrator.</p>
+<pre>pwsh -File .\scripts\New-MonitorAppRegistration.ps1 `
+  -TenantId &lt;tenant-guid&gt; `
+  -TenantKey &lt;kundenschlüssel&gt; `
+  -CreateCertificate</pre>
+  <p>Die Ausgabe enthält Tenant-ID, Client-ID sowie die beiden PEM-Blöcke. Beides wird im
+    Formular <a href="{{ url_for('customers.create') }}">Kunde anlegen</a> eingefügt.</p>
+</div>
+
+<div class="card">
+  <h2>Variante B: von Hand im Entra-Portal</h2>
+  <ol>
+    <li>Entra-Portal, <span class="mono">Identität &gt; Anwendungen &gt;
+      App-Registrierungen &gt; Neue Registrierung</span>. Name zum Beispiel
+      <span class="mono">SVC-Monitoring-SecretExpiry</span>, Kontotyp
+      "Nur Konten in diesem Organisationsverzeichnis", keine Umleitungs-URI.</li>
+    <li>In der neuen Registrierung <span class="mono">API-Berechtigungen &gt; Berechtigung
+      hinzufügen &gt; Microsoft Graph &gt; Anwendungsberechtigungen</span>, danach
+      <span class="mono">{{ permission.name }}</span> auswählen.</li>
+    <li><span class="mono">Administratorzustimmung erteilen</span> anklicken. Ohne diesen
+      Schritt liefert Graph beim ersten Lauf einen 403.</li>
+    <li>Zertifikat erzeugen und den öffentlichen Teil unter
+      <span class="mono">Zertifikate &amp; Geheimnisse &gt; Zertifikate</span> hochladen.
+      Alternativ dort ein Client Secret erstellen, maximale Laufzeit 24 Monate.</li>
+    <li>Aus der Übersicht <span class="mono">Anwendungs-ID</span> und
+      <span class="mono">Verzeichnis-ID</span> notieren.</li>
+  </ol>
+<pre># Zertifikat und Schlüssel lokal erzeugen (OpenSSL)
+openssl req -x509 -newkey rsa:2048 -sha256 -days 3650 -nodes \
+  -keyout kunde.key -out kunde.crt -subj "/CN=entra-secret-monitor"</pre>
+  <p>Der Inhalt von <span class="mono">kunde.crt</span> gehört in das Feld Zertifikat,
+    der Inhalt von <span class="mono">kunde.key</span> in das Feld privater Schlüssel.
+    Im Entra-Portal wird nur <span class="mono">kunde.crt</span> hochgeladen.</p>
+</div>
+
+<div class="card">
+  <h2>PRTG-Sensor</h2>
+  <p class="lead">Sensortyp <strong>HTTP Data Advanced</strong>, Intervall sechs Stunden.
+    Der Abruf liest den gespeicherten Stand aus der Datenbank und löst keine Anfrage an
+    Microsoft aus.</p>
+<pre>{{ base }}/prtg/&lt;token&gt;</pre>
+  <ul>
+    <li>Kanal <span class="mono">Datenalter</span> schlägt an, wenn der tägliche Lauf
+      ausbleibt. Warnung ab {{ cfg.stale_hours }} Stunden, Fehler ab
+      {{ cfg.stale_hours * 2 }} Stunden.</li>
+    <li>Kanal <span class="mono">Minimale Restlaufzeit</span> trägt die Warn- und
+      Fehlergrenze des Kunden.</li>
+    <li>PRTG ordnet Kanäle über den Namen zu. Grenzwerte werden nur beim ersten Auftreten
+      eines Kanals übernommen, spätere Änderungen müssen im Sensor nachgezogen werden.</li>
+    <li>Der Token gilt für genau einen Kunden und lässt sich in der Kundenansicht
+      erneuern, ohne ein Konto anzufassen.</li>
+  </ul>
+
+  <h3>Sensor für eine einzelne Anwendung</h3>
+  <p>Derselbe Token bedient beliebig viele Sensoren. Gefiltert wird der gespeicherte
+    Stand, ein zusätzlicher Sensor kostet also keine weitere Graph-Anfrage. In der
+    Kundenansicht führt neben jedem Credential ein Link <span class="mono">XML</span>
+    direkt auf die passende URL.</p>
+<pre># alles ausser dem selbst rotierenden Connect-Zertifikat, Schwellen 30/14
+{{ base }}/prtg/&lt;token&gt;?exclude=ConnectSyncProvisioning
+
+# nur das Connect-Zertifikat, Schwellen 10/5, damit ein stehender
+# Connect-Server trotzdem auffällt
+{{ base }}/prtg/&lt;token&gt;?filter=ConnectSyncProvisioning&amp;warn=10&amp;error=5
+
+# genau eine Anwendung
+{{ base }}/prtg/&lt;token&gt;?app=KeyCloak&amp;type=secret</pre>
+  <div class="scroll">
+  <table>
+    <thead><tr><th>Parameter</th><th class="wrap">Wirkung</th></tr></thead>
+    <tbody>
+      <tr><td class="mono">app</td><td class="wrap">genau diese Anwendung, exakter Name</td></tr>
+      <tr><td class="mono">filter</td><td class="wrap">nur Anwendungen, deren Name den Wert enthält</td></tr>
+      <tr><td class="mono">exclude</td><td class="wrap">kommagetrennte Ausschlüsse, gewinnt über filter</td></tr>
+      <tr><td class="mono">type</td><td class="wrap"><span class="mono">secret</span> oder <span class="mono">cert</span></td></tr>
+      <tr><td class="mono">warn</td><td class="wrap">eigene Warngrenze in Tagen</td></tr>
+      <tr><td class="mono">error</td><td class="wrap">eigene Fehlergrenze in Tagen</td></tr>
+      <tr><td class="mono">max_channels</td><td class="wrap">Kanäle begrenzen</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <div class="note warn">Die Kennzahlen Minimale Restlaufzeit, Kritisch und Abgelaufen
+    werden über den gefilterten Umfang neu berechnet. Ein Sensor beschreibt damit
+    immer nur seinen eigenen Ausschnitt.</div>
+</div>
+
+<div class="card">
+  <h2>Zeitplan</h2>
+  <p class="lead">Jeder Kunde hat eine eigene Minute im Tag. Ein neuer Kunde landet in der
+    grössten freien Lücke.
+    {%- if customers %} Bei aktuell {{ customers|length }}
+    {{ 'Kunden' if customers|length > 1 else 'Kunden' }} liegen die Läufe rund
+    {{ (1440 // customers|length) }} Minuten auseinander.{% endif %}
+    Zusätzlich wartet der Scheduler {{ cfg.gap_seconds }} Sekunden zwischen zwei Tenants,
+    und es läuft nie mehr als eine Abfrage gleichzeitig.</p>
+  <p>Ein Klick auf <strong>Jetzt prüfen</strong> holt den aktuellen Stand sofort, zum
+    Beispiel direkt nach dem Anlegen eines neuen Secrets. Der Tageslauf entfällt dann,
+    weil die Daten bereits frisch sind.</p>
+  {% if customers %}
+  <div class="scroll">
+  <table>
+    <thead><tr><th>Slot (UTC)</th><th class="wrap">Kunde</th><th>Status</th></tr></thead>
+    <tbody>
+      {% for c in customers|sort(attribute='slot_minute') %}
+      <tr><td class="mono">{{ c.slot_label }}</td><td class="wrap">{{ c.display_name }}</td>
+        <td>{{ 'aktiv' if c.is_active else 'deaktiviert' }}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

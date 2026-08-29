@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Entra Credential Portal{% endblock %}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='portal.css') }}">
+</head>
+<body>
+{% if current_user.is_authenticated %}
+<header class="top">
+  <div class="brand">Entra Credential <span>Monitor</span></div>
+  <nav>
+    <a href="{{ url_for('dashboard.index') }}"
+       class="{{ 'active' if request.endpoint == 'dashboard.index' }}">Übersicht</a>
+    {% if may_write %}
+    <a href="{{ url_for('customers.create') }}"
+       class="{{ 'active' if request.endpoint == 'customers.create' }}">Kunde anlegen</a>
+    {% endif %}
+    {% if is_admin %}
+    <a href="{{ url_for('users.index') }}"
+       class="{{ 'active' if request.blueprint == 'users' }}">Benutzer</a>
+    {% endif %}
+    <a href="{{ url_for('docs.index') }}"
+       class="{{ 'active' if request.blueprint == 'docs' }}">Anleitung</a>
+  </nav>
+  <div class="who">
+    <span>{{ current_user.display_name or current_user.username }} &middot;
+      {{ current_user.role_label }}</span>
+    <a href="{{ url_for('auth.change_password') }}">Passwort</a>
+    <a href="{{ url_for('auth.reenroll_totp') }}">2FA</a>
+    <form method="post" action="{{ url_for('auth.logout') }}" class="inline">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <button class="btn ghost small" type="submit">Abmelden</button>
+    </form>
+  </div>
+</header>
+{% endif %}
+
+<main>
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+      {% for category, message in messages %}
+        <div class="flash {{ category }}">{{ message }}</div>
+      {% endfor %}
+    {% endif %}
+  {% endwith %}
+  {% block content %}{% endblock %}
+</main>
+
+{% if current_user.is_authenticated %}
+<footer class="bottom">
+  {% block footer %}{% endblock %}
+  {{ instance_name }} &middot; Daten stammen aus dem letzten gespeicherten Lauf,
+  ein PRTG-Abruf löst keine Graph-Anfrage aus.
+</footer>
+{% endif %}
+</body>
+</html>
