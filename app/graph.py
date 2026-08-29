@@ -20,7 +20,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from xml.sax.saxutils import escape
@@ -59,6 +59,8 @@ class TenantConfig:
     client_secret: str = ""
     cert_path: str = ""
     key_path: str = ""
+    cert_pem: str = ""
+    key_pem: str = ""
     include_sp: bool = False
     app_filter: str = ""
     app_exclude: str = ""
@@ -75,7 +77,8 @@ class TenantConfig:
         self.max_channels = _clamp_channels(self.max_channels)
         if not self.tenant_id or not self.client_id:
             raise GraphError("Tenant '%s': TENANT_ID oder CLIENT_ID fehlt" % self.key)
-        if not self.client_secret and not (self.cert_path and self.key_path):
+        if not (self.client_secret or (self.cert_path and self.key_path)
+                or (self.cert_pem and self.key_pem)):
             raise GraphError("Tenant '%s': weder CLIENT_SECRET noch CERT_PATH/KEY_PATH gesetzt"
                              % self.key)
 
@@ -232,8 +235,14 @@ def _client_assertion(cfg):
     from cryptography.hazmat.primitives import hashes, serialization
     from cryptography.hazmat.primitives.asymmetric import padding
 
-    cert = x509.load_pem_x509_certificate(Path(cfg.cert_path).read_bytes())
-    key = serialization.load_pem_private_key(Path(cfg.key_path).read_bytes(), password=None)
+    # The portal keeps the key material encrypted in its database and hands it
+    # over in memory; the classic service points at files on a mounted volume.
+    cert_bytes = (cfg.cert_pem.encode() if cfg.cert_pem
+                  else Path(cfg.cert_path).read_bytes())
+    key_bytes = (cfg.key_pem.encode() if cfg.key_pem
+                 else Path(cfg.key_path).read_bytes())
+    cert = x509.load_pem_x509_certificate(cert_bytes)
+    key = serialization.load_pem_private_key(key_bytes, password=None)
     thumb = base64.urlsafe_b64encode(cert.fingerprint(hashes.SHA1())).decode().rstrip("=")
 
     def segment(obj):
@@ -258,7 +267,7 @@ def _client_assertion(cfg):
 
 def get_token(cfg):
     """Acquire an app-only Graph token, certificate first, secret as fallback."""
-    if cfg.cert_path and cfg.key_path:
+    if (cfg.cert_pem and cfg.key_pem) or (cfg.cert_path and cfg.key_path):
         return _post_token(cfg.tenant_id, {
             "client_id": cfg.client_id,
             "client_assertion_type": "urn:ietf:params:oauth:client-assertion-type:jwt-bearer",
@@ -498,8 +507,27 @@ def scan_tenant(cfg):
 # Renderers
 # --------------------------------------------------------------------------
 
-def render_prtg(result, cfg):
-    """Render PRTG XML: three summary channels plus one channel per app."""
+# XML 1.0 forbids most control characters outright. A display name coming from
+# Graph may contain them, and escape() would pass them straight through, which
+# leaves the sensor with a document PRTG cannot parse.
+_XML_SAFE_LOW = (9, 10, 13)          # Tab, Zeilenvorschub, Wagenrücklauf
+
+
+def xml_text(value):
+    """Escape a value for XML and drop characters XML cannot represent."""
+    text = "".join(ch for ch in str(value)
+                   if (ord(ch) >= 32 and ord(ch) != 127) or ord(ch) in _XML_SAFE_LOW)
+    return escape(text)
+
+
+def render_prtg(result, cfg, extra_channels=None):
+    """
+    Render PRTG XML: three summary channels plus one channel per app.
+
+    extra_channels lets a caller prepend its own channels as
+    (name, value, unit, limits) tuples; the portal uses it to publish the age
+    of the stored data so a stalled scheduler turns the sensor red.
+    """
     channels = result["channels"]
     # max_channels ist durch TenantConfig auf 1..MAX_APP_CHANNELS begrenzt,
     # der Slice kann hier also nicht ueber das PRTG-Limit hinauslaufen.
@@ -511,10 +539,10 @@ def render_prtg(result, cfg):
     def channel(name, value, unit, limits=None):
         """Append one <result> block, optionally with static limits."""
         out.append("  <result>")
-        out.append("    <channel>%s</channel>" % escape(name))
+        out.append("    <channel>%s</channel>" % xml_text(name))
         out.append("    <value>%d</value>" % value)
         out.append("    <unit>Custom</unit>")
-        out.append("    <customunit>%s</customunit>" % escape(unit))
+        out.append("    <customunit>%s</customunit>" % xml_text(unit))
         if limits:
             lo_warn, lo_err, hi_warn, hi_err = limits
             out.append("    <limitmode>1</limitmode>")
@@ -529,6 +557,8 @@ def render_prtg(result, cfg):
         out.append("  </result>")
 
     day_limits = (cfg.warn_days, cfg.error_days, None, None)
+    for name, value, unit, limits in extra_channels or []:
+        channel(name, value, unit, limits)
     channel("Minimale Restlaufzeit", summary["minimum"], "Tage", day_limits)
     channel("Kritisch unter Warngrenze", summary["critical"], "Anzahl", (None, None, 0, None))
     channel("Abgelaufen", summary["expired"], "Anzahl", (None, None, None, 0))
@@ -537,13 +567,13 @@ def render_prtg(result, cfg):
 
     if channels:
         worst = channels[0]
-        text = "Naechster Ablauf: %s am %s (%d Tage)" % (
+        text = "Nächster Ablauf: %s am %s (%d Tage)" % (
             worst["name"], worst["expires"], worst["days"])
     else:
         text = "Keine Credentials gefunden"
     if truncated > 0:
-        text += " | %d weitere Kanaele nicht dargestellt" % truncated
-    out.append("  <text>%s</text>" % escape(text[:2000]))
+        text += " | %d weitere Kanäle nicht dargestellt" % truncated
+    out.append("  <text>%s</text>" % xml_text(text[:2000]))
     out.append("</prtg>")
     return "\n".join(out)
 
@@ -551,7 +581,7 @@ def render_prtg(result, cfg):
 def render_prtg_error(message):
     """Render a PRTG error response so the sensor turns red instead of staying silent."""
     return ('<?xml version="1.0" encoding="UTF-8" ?>\n<prtg>\n  <error>1</error>\n'
-            '  <text>%s</text>\n</prtg>' % escape(str(message)[:2000]))
+            '  <text>%s</text>\n</prtg>' % xml_text(str(message)[:2000]))
 
 
 def render_text(result, cfg):
@@ -568,7 +598,7 @@ def render_text(result, cfg):
             entry["app"], entry["cred_name"]))
     lines.append("-" * 100)
     summary = result["summary"]
-    lines.append("%d Eintraege, %d abgelaufen, %d unter %d Tagen" % (
+    lines.append("%d Einträge, %d abgelaufen, %d unter %d Tagen" % (
         summary["total"], summary["expired"], summary["critical"], cfg.warn_days))
     return "\n".join(lines)
 

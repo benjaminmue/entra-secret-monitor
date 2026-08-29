@@ -479,6 +479,16 @@ class RenderPrtgErrorTest(unittest.TestCase):
         self.assertIn("<error>1</error>", xml)
         self.assertIn("kaputt", xml)
 
+    def test_control_characters_cannot_break_the_error_document(self):
+        """
+        The error document exists so PRTG shows a red sensor instead of a parse
+        error. A control character reflected from ?tenant= used to produce
+        exactly the parse error it is meant to prevent.
+        """
+        from xml.etree import ElementTree
+        ElementTree.fromstring(
+            graph.render_prtg_error("Tenant '\x01boese' nicht konfiguriert"))
+
     def test_is_well_formed_and_truncates_long_messages(self):
         from xml.etree import ElementTree
         root = ElementTree.fromstring(graph.render_prtg_error("x" * 5000))
@@ -491,7 +501,7 @@ class RenderTextTest(unittest.TestCase):
         result = graph.build_result([make_credential(app_name="Alpha")], cfg)
         text = graph.render_text(result, cfg)
         self.assertIn("Alpha", text)
-        self.assertIn("1 Eintraege", text)
+        self.assertIn("1 Einträge", text)
 
     def test_marks_urgent_entries(self):
         cfg = make_config(warn_days=30, error_days=14)
