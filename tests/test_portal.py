@@ -104,6 +104,44 @@ class SecurityUnitTests(unittest.TestCase):
         self.assertTrue(security.verify_password(stored, NEW_PASSWORD))
         self.assertFalse(security.verify_password(stored, NEW_PASSWORD + "x"))
 
+    def test_dummy_verify_costs_the_same_as_a_real_check(self):
+        """
+        A missing account must not be distinguishable by response time.
+
+        Asserted structurally rather than by the clock: dummy_verify must not
+        hash, because hashing on top of the verify made the unknown user twice
+        as slow, which is exactly what leaked the username.
+        """
+        from unittest import mock
+
+        from portal import security
+
+        with mock.patch.object(security, "hash_password") as hashed:
+            self.assertFalse(security.dummy_verify("irgendein Passwort"))
+        hashed.assert_not_called()
+
+    def test_dummy_verify_is_within_the_same_order_as_a_real_check(self):
+        """Guards the structural test above with a generous timing bound."""
+        import statistics
+        import time
+
+        from portal import security
+
+        stored = security.hash_password("richtiges-passwort")
+
+        def median(call):
+            samples = []
+            for _ in range(7):
+                started = time.perf_counter()
+                call()
+                samples.append(time.perf_counter() - started)
+            return statistics.median(samples)
+
+        real = median(lambda: security.verify_password(stored, "falsch"))
+        dummy = median(lambda: security.dummy_verify("falsch"))
+        self.assertLess(max(real, dummy) / min(real, dummy), 1.5,
+                        "Antwortzeit verraet, ob der Benutzer existiert")
+
     def test_encryption_roundtrip_and_wrong_key(self):
         """A value survives a roundtrip and fails loudly under a different key."""
         from portal import crypto
@@ -323,6 +361,41 @@ class PortalFlowTests(unittest.TestCase):
             "new_password": "passwort123",
             "confirm_password": "passwort123"})
         self.assertEqual(400, response.status_code)
+
+    def test_05b_step_up_locks_out_after_repeated_failures(self):
+        """
+        Replacing the second factor must not be brute forceable.
+
+        Login and the code step both count failures and lock the account. The
+        step-up guarding the authenticator swap only wrote an audit entry, so a
+        stolen session could guess password and code indefinitely and turn a
+        temporary hijack into permanent access.
+        """
+        from portal.db import Session
+        from portal.models import User
+
+        admin = Session.query(User).filter(User.username == "admin").one()
+        admin.failed_logins = 0
+        admin.locked_until = None
+        Session.commit()
+
+        limit = self.app.config["PORTAL"].login_max_attempts
+        statuses = []
+        for _ in range(limit + 2):
+            token = self._csrf("/account/2fa")
+            statuses.append(self.client.post("/account/2fa", data={
+                "csrf_token": token,
+                "current_password": "definitiv-falsch",
+                "code": "000000"}).status_code)
+
+        self.assertIn(429, statuses,
+                      "Step-up laesst unbegrenztes Raten zu: %s" % statuses)
+        self.assertLessEqual(statuses.index(429), limit)
+
+        reloaded = Session.query(User).filter(User.username == "admin").one()
+        reloaded.failed_logins = 0
+        reloaded.locked_until = None
+        Session.commit()
 
     def test_06_customer_lifecycle_and_prtg_endpoint(self):
         """Create a customer with a stubbed scan and read the sensor output."""

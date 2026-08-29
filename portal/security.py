@@ -108,6 +108,24 @@ def verify_password(stored_hash, password):
         return False
 
 
+# Einmalig beim Import, damit dummy_verify nur noch prueft und nicht hasht.
+_DUMMY_HASH = _hasher.hash("dummy password for timing equalisation")
+
+
+def dummy_verify(password):
+    """
+    Burn the same time a real password check costs, for a missing account.
+
+    The login must not answer faster for an unknown user than for a known one
+    with a wrong password, otherwise the response time reveals which usernames
+    exist. Hashing a throwaway value per attempt would overshoot: it costs a
+    hash on top of the verify, so the unknown user became measurably slower
+    instead, and every sprayed random name cost double the CPU. The reference
+    hash is therefore computed once at import, with the parameters in use.
+    """
+    return verify_password(_DUMMY_HASH, password)
+
+
 def needs_rehash(stored_hash):
     """True when the hash was produced with weaker parameters than the current ones."""
     try:

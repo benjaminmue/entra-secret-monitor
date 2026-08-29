@@ -106,8 +106,9 @@ def login():
                 _register_failure(user, cfg, "Passwort falsch")
                 Session.commit()
             else:
-                # Hash anyway so a missing account is not faster than a wrong password.
-                security.verify_password(security.hash_password("timing"), form.password.data)
+                # Same cost as a real check, so the answer does not reveal
+                # whether the username exists.
+                security.dummy_verify(form.password.data)
                 audit.log(Session, "login.unknown", actor=username[:64], success=False,
                           trust_proxy=cfg.trust_proxy)
             flash("Benutzername oder Passwort falsch.", "error")
@@ -380,6 +381,10 @@ def reenroll_totp():
     if not current_user.totp_ready:
         return redirect(url_for("auth.setup_totp"))
 
+    if _locked(current_user):
+        flash("Konto ist vorübergehend gesperrt. Bitte später erneut versuchen.", "error")
+        return render_template("totp_reenroll.html", form=StepUpForm()), 429
+
     form = StepUpForm()
     if form.validate_on_submit():
         password_ok = security.verify_password(current_user.password_hash,
@@ -397,6 +402,10 @@ def reenroll_totp():
 
         audit.log(Session, "totp.reenroll_denied", actor=current_user.username,
                   success=False, trust_proxy=cfg.trust_proxy)
+        # Ohne Zaehler liesse sich ueber diesen Pfad unbegrenzt raten, waehrend
+        # Login und Code-Pruefung nach cfg.login_max_attempts sperren.
+        _register_failure(current_user, cfg, "Step-up 2FA falsch")
+        Session.commit()
         flash("Passwort oder Code stimmt nicht.", "error")
         return render_template("totp_reenroll.html", form=form), 400
 
