@@ -14,6 +14,7 @@ Only stdlib plus `cryptography` (needed for certificate authentication).
 import base64
 import json
 import os
+import sys
 import time
 import urllib.error
 import urllib.parse
@@ -27,6 +28,12 @@ from xml.sax.saxutils import escape
 GRAPH_BASE = "https://graph.microsoft.com/v1.0"
 GRAPH_SCOPE = "https://graph.microsoft.com/.default"
 SELECT_FIELDS = "id,appId,displayName,passwordCredentials,keyCredentials"
+
+# PRTG rendert hoechstens 50 Kanaele je Sensor. Drei belegt die Zusammenfassung
+# (Minimum, Kritisch, Abgelaufen), der Rest steht Anwendungen zur Verfuegung.
+PRTG_CHANNEL_LIMIT = 50
+SUMMARY_CHANNELS = 3
+MAX_APP_CHANNELS = PRTG_CHANNEL_LIMIT - SUMMARY_CHANNELS
 
 
 class GraphError(RuntimeError):
@@ -65,6 +72,7 @@ class TenantConfig:
         """Fill in the display name and validate the credential configuration."""
         if not self.display_name:
             self.display_name = self.key
+        self.max_channels = _clamp_channels(self.max_channels)
         if not self.tenant_id or not self.client_id:
             raise GraphError("Tenant '%s': TENANT_ID oder CLIENT_ID fehlt" % self.key)
         if not self.client_secret and not (self.cert_path and self.key_path):
@@ -85,6 +93,30 @@ def _as_int(value, default):
         return int(str(value).strip())
     except (TypeError, ValueError):
         return default
+
+
+def _clamp_channels(value):
+    """
+    Keep max_channels inside the range PRTG can actually render.
+
+    Above MAX_APP_CHANNELS the sensor exceeds the 50 channel limit once the
+    summary channels are added; below 1 the channel list would be sliced from
+    the end instead of truncated.
+
+    Clamping beats raising here: a monitoring service that refuses to start over
+    a typo reports nothing at all. Request overrides are rejected instead, see
+    parse_overrides in server.py, because there someone is watching the answer.
+    """
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        return 45
+    if 1 <= number <= MAX_APP_CHANNELS:
+        return number
+    fixed = min(max(number, 1), MAX_APP_CHANNELS)
+    print("max_channels=%s liegt ausserhalb 1..%d, benutze %d"
+          % (value, MAX_APP_CHANNELS, fixed), file=sys.stderr)
+    return fixed
 
 
 def _env_prefix(key):
@@ -252,6 +284,7 @@ class Credential:
 
     app_name: str
     app_id: str
+    object_id: str            # Graph object id, stable and unique per object
     object_type: str          # "application" or "servicePrincipal"
     cred_type: str            # "secret" or "cert"
     display_name: str
@@ -315,6 +348,7 @@ def collect_credentials(token, include_sp):
                 creds.append(Credential(
                     app_name=obj.get("displayName") or obj.get("appId", "?"),
                     app_id=obj.get("appId", ""),
+                    object_id=obj.get("id", ""),
                     object_type=obj_type,
                     cred_type=cred_type,
                     display_name=cred.get("displayName") or "(ohne Name)",
@@ -348,27 +382,76 @@ def build_channels(creds, cfg):
             continue
         if any(e in name for e in excludes):
             continue
-        groups.setdefault((cred.app_name, cred.cred_type), []).append(cred)
+        groups.setdefault(
+            (cred.object_type, cred.object_id, cred.cred_type), []).append(cred)
 
     channels = []
-    for (app_name, cred_type), items in groups.items():
+    for (_object_type, _object_id, cred_type), items in groups.items():
         best = max(items, key=lambda c: c.days_left)
         if best.days_left < 0 and not cfg.show_expired:
             continue
-        label = "Secret" if cred_type == "secret" else "Zertifikat"
         channels.append({
-            "name": "%s (%s)" % (app_name, label),
-            "app": app_name,
+            "name": None,           # gesetzt von _assign_channel_names
+            "app": best.app_name,
             "days": best.days_left,
             "expires": best.end_date.strftime("%Y-%m-%d"),
             "cred_name": best.display_name,
             "app_id": best.app_id,
             "type": cred_type,
             "object_type": best.object_type,
+            "object_id": best.object_id,
             "count": len(items),
         })
+    _assign_channel_names(channels)
     channels.sort(key=lambda c: c["days"])
     return channels
+
+
+# Zusaetze in der Reihenfolge, in der sie versucht werden: der Objekttyp trennt
+# eine Anwendung von ihrem Dienstprinzipal, die appId zwei gleichnamige
+# Registrierungen, die Objekt-ID ist die letzte Instanz.
+_NAME_SUFFIXES = (
+    lambda c: "App" if c["object_type"] == "application" else "SP",
+    lambda c: (c["app_id"] or "?")[:8],
+    lambda c: (c["object_id"] or "?")[:8],
+)
+
+
+def _assign_channel_names(channels):
+    """
+    Give every channel a unique display name, in place.
+
+    PRTG matches values to channels by name, so a duplicate name makes a sensor
+    unusable. Only colliding names get a suffix, and only the first suffix that
+    actually splits the group, so the common case stays readable.
+    """
+    for chan in channels:
+        label = "Secret" if chan["type"] == "secret" else "Zertifikat"
+        chan["name"] = "%s (%s)" % (chan["app"], label)
+
+    for suffix in _NAME_SUFFIXES:
+        collisions = _shared_names(channels)
+        if not collisions:
+            return
+        for group in collisions:
+            if len({suffix(c) for c in group}) > 1:
+                for chan in group:
+                    chan["name"] = "%s [%s]" % (chan["name"], suffix(chan))
+
+    # Die Zusaetze koennen ausgehen, etwa wenn Graph keine Objekt-ID lieferte.
+    # Eindeutig muessen die Namen trotzdem sein.
+    for group in _shared_names(channels):
+        for index, chan in enumerate(group):
+            if index:
+                chan["name"] = "%s [%d]" % (chan["name"], index + 1)
+
+
+def _shared_names(channels):
+    """Return the groups of channels that currently share a name."""
+    groups = {}
+    for chan in channels:
+        groups.setdefault(chan["name"], []).append(chan)
+    return [g for g in groups.values() if len(g) > 1]
 
 
 def summarize(channels, cfg):
@@ -418,6 +501,8 @@ def scan_tenant(cfg):
 def render_prtg(result, cfg):
     """Render PRTG XML: three summary channels plus one channel per app."""
     channels = result["channels"]
+    # max_channels ist durch TenantConfig auf 1..MAX_APP_CHANNELS begrenzt,
+    # der Slice kann hier also nicht ueber das PRTG-Limit hinauslaufen.
     shown = channels[:cfg.max_channels]
     truncated = len(channels) - len(shown)
     summary = result["summary"]
