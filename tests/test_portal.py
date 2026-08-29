@@ -24,16 +24,12 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 sys.path.insert(0, os.path.join(ROOT, "app"))
 
-try:                                                                    # noqa: E402
-    import pyotp
-    PORTAL_DEPS_AVAILABLE = True
-except ImportError:                     # Flask, argon2 und pyotp sind Extras,
-    pyotp = None                        # der Dienst in app/ bleibt reine stdlib.
-    PORTAL_DEPS_AVAILABLE = False
+from tests.support import needs_portal                                   # noqa: E402
 
-needs_portal = unittest.skipUnless(
-    PORTAL_DEPS_AVAILABLE,
-    "Portal-Abhaengigkeiten fehlen, siehe requirements-portal.txt")
+try:                                    # Nur vorhanden, wenn die Extras des
+    import pyotp                        # Portals installiert sind; ohne sie
+except ImportError:                     # ueberspringt needs_portal alles hier.
+    pyotp = None
 
 BOOTSTRAP_PASSWORD = "Start!Passwort2026x"
 NEW_PASSWORD = "Zaun#Kies7Vogel!Lampe"

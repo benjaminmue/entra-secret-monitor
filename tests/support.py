@@ -1,7 +1,22 @@
-"""Shared builders for the tests, so no test has to spell out full objects."""
+"""Shared builders and markers, so no test has to spell out full objects."""
+import unittest
 from datetime import datetime, timedelta, timezone
 
 import graph
+
+try:
+    import flask  # noqa: F401
+    import pyotp  # noqa: F401
+    from cryptography.hazmat.primitives.ciphers.aead import AESGCM  # noqa: F401
+
+    PORTAL_DEPS_AVAILABLE = True
+except ImportError:                  # Die Extras des Portals sind optional,
+    PORTAL_DEPS_AVAILABLE = False    # der Dienst in app/ bleibt reine stdlib.
+
+# Marker fuer alles, was Flask, argon2, pyotp oder cryptography braucht.
+needs_portal = unittest.skipUnless(
+    PORTAL_DEPS_AVAILABLE,
+    "Portal-Abhaengigkeiten fehlen, siehe requirements-portal.txt")
 
 VALID_TENANT = "00000000-0000-0000-0000-000000000001"
 VALID_CLIENT = "00000000-0000-0000-0000-000000000002"
