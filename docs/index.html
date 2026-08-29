@@ -9,7 +9,9 @@
 <meta property="og:description" content="Find expiring Entra ID app credentials before the sync breaks. PRTG XML, JSON and a web GUI from one container.">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://entra-monitor.bebamu.ch/">
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><text y='26' font-size='26'>🔑</text></svg>">
+<link rel="icon" type="image/svg+xml" href="assets/logo.svg">
+<link rel="apple-touch-icon" href="assets/logo-512.png">
+<meta property="og:image" content="https://entra-monitor.bebamu.ch/assets/logo-512.png">
 <style>
   :root{
     --blue:#0076bd; --blue-dark:#0f3a6f; --blue-light:#e6f2fa;
@@ -38,8 +40,9 @@
   /* ---------- header ---------- */
   header{background:var(--blue-dark); color:#fff; padding:14px 0}
   header .wrap{display:flex; align-items:center; justify-content:space-between; gap:16px; flex-wrap:wrap}
-  .brand{font-weight:700; font-size:1.05rem; letter-spacing:-.01em}
-  .brand span{color:var(--green)}
+  .brand{display:flex; align-items:center; gap:10px; font-weight:700; font-size:1.05rem; letter-spacing:-.01em}
+  .brand img{display:block; border-radius:7px}
+  .brand .name span{color:var(--green)}
   .nav{display:flex; gap:20px; font-size:.93rem}
   .nav a{color:#cfe3f2; text-decoration:none}
   .nav a:hover{color:#fff; text-decoration:underline}
@@ -157,7 +160,10 @@
 
 <header>
   <div class="wrap">
-    <div class="brand">Entra Credential <span>Monitor</span></div>
+    <div class="brand">
+      <img src="assets/logo.svg" width="30" height="30" alt="">
+      <span class="name">Entra Credential <span>Monitor</span></span>
+    </div>
     <nav class="nav">
       <a href="#why">Why</a>
       <a href="#sensor">PRTG</a>
