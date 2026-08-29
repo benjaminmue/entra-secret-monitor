@@ -29,6 +29,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 OUTPUT = ROOT / "docs" / "FUNCTIONS.md"
+# portal/ gibt es nur auf dem Portal-Branch; fehlt es, wird es
+# uebersprungen und das Inventar deckt nur den klassischen Dienst ab.
 SOURCE_DIRS = ("app", "portal")
 
 # Rümpfe unterhalb dieser Grösse sind zwangsläufig ähnlich, etwa ein einzelnes
@@ -37,6 +39,10 @@ MIN_BODY_NODES = 12
 
 # Bewusste Doppelungen, jeweils mit Grund. Wer hier etwas einträgt, sagt damit:
 # geprüft, gewollt, kein Handlungsbedarf.
+#
+# Die Liste ist auf allen Branches dieselbe, damit ein Merge sie nie anfasst.
+# Auf main existiert portal/ nicht, die Einträge dazu greifen dort einfach nicht
+# und sind kein toter Ballast, den man aufräumen sollte.
 ALLOWED_NAME_DUPLICATES = {
     "main": "Jeder Einstiegspunkt hat sein eigenes main, das ist Konvention.",
     "apply_overrides": (

@@ -295,6 +295,10 @@ land quietly.
 It detects copies, not reinvention: a second implementation written from scratch
 with a different shape will not be caught.
 
+The tool runs on both branches. Here it covers `app/` and `portal/`; on main
+only `app/` exists, so the generated document differs between them by design.
+After a merge, regenerate rather than resolving it by hand.
+
 ## Known limitations
 
 - GUI labels and PRTG channel names are German. Renaming them later renames the
