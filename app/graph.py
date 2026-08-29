@@ -581,7 +581,7 @@ def render_prtg(result, cfg, extra_channels=None):
 def render_prtg_error(message):
     """Render a PRTG error response so the sensor turns red instead of staying silent."""
     return ('<?xml version="1.0" encoding="UTF-8" ?>\n<prtg>\n  <error>1</error>\n'
-            '  <text>%s</text>\n</prtg>' % escape(str(message)[:2000]))
+            '  <text>%s</text>\n</prtg>' % xml_text(str(message)[:2000]))
 
 
 def render_text(result, cfg):
