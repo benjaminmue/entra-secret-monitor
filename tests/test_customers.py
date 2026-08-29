@@ -291,6 +291,56 @@ class SchedulerTests(unittest.TestCase):
         scheduler.stop()
         self.assertFalse(scheduler.status()["running"])
 
+    def test_thread_starts_and_stops(self):
+        from types import SimpleNamespace
+
+        from portal import scheduler
+
+        config = SimpleNamespace(encryption_key=b"\x00" * 32, tick_seconds=60,
+                                 gap_seconds=1, history_runs=5)
+        thread = scheduler.start(config)
+        try:
+            self.assertTrue(thread.is_alive())
+            self.assertTrue(scheduler.status()["active"])
+        finally:
+            scheduler.stop()
+            thread.join(timeout=5)
+        self.assertFalse(thread.is_alive(), "der Scheduler-Thread endet nicht")
+        self.assertFalse(scheduler.status()["active"])
+
+    def test_start_is_idempotent(self):
+        from types import SimpleNamespace
+
+        from portal import scheduler
+
+        config = SimpleNamespace(encryption_key=b"\x00" * 32, tick_seconds=60,
+                                 gap_seconds=1, history_runs=5)
+        first = scheduler.start(config)
+        try:
+            # A second call must not spawn a competing thread against the same
+            # tenants, it returns the running one.
+            self.assertIs(first, scheduler.start(config))
+        finally:
+            scheduler.stop()
+            first.join(timeout=5)
+
+    def test_force_check_reports_an_unknown_customer(self):
+        from portal import scheduler
+
+        with self.assertRaises(LookupError):
+            scheduler.force_check(999999, b"\x00" * 32, actor="test")
+
+    def test_force_check_gives_up_when_a_run_holds_the_lock(self):
+        # Queueing behind a scheduled run is intended; blocking forever is not.
+        from portal import scheduler
+
+        self.assertTrue(scheduler.SCAN_LOCK.acquire(timeout=5))
+        try:
+            with self.assertRaises(TimeoutError):
+                scheduler.force_check(1, b"\x00" * 32, actor="test", wait_seconds=0)
+        finally:
+            scheduler.SCAN_LOCK.release()
+
 
 if __name__ == "__main__":
     unittest.main()
