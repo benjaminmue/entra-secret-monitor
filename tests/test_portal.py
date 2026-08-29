@@ -527,5 +527,217 @@ class PortalFlowTests(unittest.TestCase):
             Session.commit()
 
 
+class UserAdministrationTests(unittest.TestCase):
+    """
+    The account administration carries the role separation of the portal.
+
+    Its guarantees were unasserted: every endpoint is admin only, the last
+    administrator cannot be removed or demoted, and nobody deletes themselves.
+    A regression here hands out privileges rather than merely misreporting.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.app, cls.db_path = build_app()
+        cls.client = cls.app.test_client()
+        cls._sign_in_admin(cls.client)
+
+    @classmethod
+    def tearDownClass(cls):
+        try:
+            os.unlink(cls.db_path)
+        except OSError:
+            pass
+
+    @classmethod
+    def _csrf_for(cls, client, path):
+        """Read the CSRF token from a rendered form."""
+        body = client.get(path).get_data(as_text=True)
+        match = re.search(r'name="csrf_token"[^>]*value="([^"]+)"', body)
+        assert match, "kein CSRF-Token auf %s" % path
+        return match.group(1)
+
+    @classmethod
+    def _sign_in_admin(cls, client):
+        """Walk the bootstrap account through TOTP enrollment and password change."""
+        client.post("/login", data={"csrf_token": cls._csrf_for(client, "/login"),
+                                    "username": "admin",
+                                    "password": BOOTSTRAP_PASSWORD})
+        token = cls._csrf_for(client, "/login/2fa/setup")
+        # The secret lives in the session during enrollment, not in the markup.
+        with client.session_transaction() as session:
+            secret = session["totp_setup_secret"]
+        client.post("/login/2fa/setup", data={"csrf_token": token,
+                                              "code": pyotp.TOTP(secret).now()})
+        client.post("/account/password", data={
+            "csrf_token": cls._csrf_for(client, "/account/password"),
+            "current_password": BOOTSTRAP_PASSWORD,
+            "new_password": NEW_PASSWORD, "confirm_password": NEW_PASSWORD})
+
+    @staticmethod
+    def _reload(username):
+        """Fetch an account fresh; refresh() fails on instances detached by a commit."""
+        from portal.db import Session
+        from portal.models import User
+        return Session.query(User).filter(User.username == username).one_or_none()
+
+    def _create_user(self, username, role="viewer"):
+        """Create an account through the form and return the stored model."""
+        self.client.post("/benutzer/neu", data={
+            "csrf_token": self._csrf_for(self.client, "/benutzer/neu"),
+            "username": username, "email": "%s@example.com" % username,
+            "role": role})
+        user = self._reload(username)
+        self.assertIsNotNone(user, "Konto '%s' wurde nicht angelegt" % username)
+        return user
+
+    def _edit(self, user, **fields):
+        """Submit the edit form; UserForm requires username even when unchanged."""
+        data = {"csrf_token": self._csrf_for(self.client,
+                                             "/benutzer/%d/bearbeiten" % user.id),
+                "username": user.username,
+                "email": "%s@example.com" % user.username,
+                "role": user.role, "is_active": "y"}
+        data.update(fields)
+        return self.client.post("/benutzer/%d/bearbeiten" % user.id, data=data)
+
+    # -- access control ----------------------------------------------------
+
+    def test_anonymous_access_is_redirected_to_the_login(self):
+        anonymous = self.app.test_client()
+        for path in ("/benutzer/", "/benutzer/neu"):
+            self.assertIn(anonymous.get(path).status_code, (302, 401), path)
+
+    def test_every_administration_route_rejects_a_viewer(self):
+        from portal.db import Session
+        from portal.models import ROLE_VIEWER
+
+        target = self._create_user("rollenopfer")
+        # Read the token while still an administrator: a missing CSRF token
+        # answers 400 before the role is ever checked, proving nothing.
+        token = self._csrf_for(self.client, "/benutzer/")
+
+        admin = self._reload("admin")
+        admin.role = ROLE_VIEWER
+        Session.commit()
+        try:
+            self.assertEqual(403, self.client.get("/benutzer/").status_code)
+            self.assertEqual(403, self.client.get("/benutzer/neu").status_code)
+            for route in ("passwort", "2fa", "loeschen"):
+                response = self.client.post("/benutzer/%d/%s" % (target.id, route),
+                                            data={"csrf_token": token})
+                self.assertEqual(403, response.status_code, route)
+        finally:
+            restored = self._reload("admin")
+            restored.role = "admin"
+            Session.commit()
+        self.assertEqual("admin", self._reload("admin").role)
+
+    # -- creation ----------------------------------------------------------
+
+    def test_new_account_starts_without_a_usable_second_factor(self):
+        user = self._create_user("neuling")
+        self.assertFalse(user.totp_ready)
+        self.assertTrue(user.must_change_password)
+
+    def test_one_time_password_page_is_not_cached(self):
+        response = self.client.post("/benutzer/neu", data={
+            "csrf_token": self._csrf_for(self.client, "/benutzer/neu"),
+            "username": "einmalig", "email": "einmalig@example.com",
+            "role": "viewer"})
+        # The generated password is on this page; a cached copy would outlive it.
+        self.assertEqual("no-store", response.headers.get("Cache-Control"))
+
+    def test_duplicate_username_is_refused(self):
+        from portal.db import Session
+        from portal.models import User
+
+        self._create_user("doppelt")
+        self.client.post("/benutzer/neu", data={
+            "csrf_token": self._csrf_for(self.client, "/benutzer/neu"),
+            "username": "doppelt", "email": "doppelt@example.com", "role": "viewer"})
+        self.assertEqual(1, Session.query(User).filter(User.username == "doppelt").count())
+
+    # -- the last administrator -------------------------------------------
+
+    def test_last_administrator_cannot_be_deleted(self):
+        admin = self._reload("admin")
+        self.client.post("/benutzer/%d/loeschen" % admin.id, data={
+            "csrf_token": self._csrf_for(self.client, "/benutzer/")})
+        self.assertIsNotNone(self._reload("admin"),
+                             "das letzte Administratorkonto wurde geloescht")
+
+    def test_last_administrator_cannot_be_demoted(self):
+        from portal.models import ROLE_VIEWER
+
+        self._edit(self._reload("admin"), role=ROLE_VIEWER)
+        self.assertEqual("admin", self._reload("admin").role,
+                         "das letzte Administratorkonto wurde degradiert")
+
+    def test_last_administrator_cannot_be_deactivated(self):
+        admin = self._reload("admin")
+        self._edit(admin, is_active="")
+        self.assertTrue(self._reload("admin").is_active,
+                        "das letzte Administratorkonto wurde deaktiviert")
+
+    def test_a_second_administrator_may_be_demoted(self):
+        from portal.models import ROLE_VIEWER
+
+        other = self._create_user("zweitadmin", role="admin")
+        self._edit(other, role=ROLE_VIEWER)
+        self.assertEqual(ROLE_VIEWER, self._reload("zweitadmin").role)
+
+    def test_own_account_cannot_be_deleted(self):
+        self._create_user("mitadmin", role="admin")   # so the guard is not "last admin"
+        admin = self._reload("admin")
+        self.client.post("/benutzer/%d/loeschen" % admin.id, data={
+            "csrf_token": self._csrf_for(self.client, "/benutzer/")})
+        self.assertIsNotNone(self._reload("admin"), "das eigene Konto wurde geloescht")
+
+    def test_another_account_can_be_deleted(self):
+        victim = self._create_user("wegdamit")
+        self.client.post("/benutzer/%d/loeschen" % victim.id, data={
+            "csrf_token": self._csrf_for(self.client, "/benutzer/")})
+        self.assertIsNone(self._reload("wegdamit"))
+
+    def test_deletion_without_a_csrf_token_is_refused(self):
+        victim = self._create_user("bleibtda")
+        self.assertEqual(400,
+                         self.client.post("/benutzer/%d/loeschen" % victim.id).status_code)
+        self.assertIsNotNone(self._reload("bleibtda"))
+
+    # -- resets ------------------------------------------------------------
+
+    def test_password_reset_issues_a_new_secret_and_forces_a_change(self):
+        user = self._create_user("resetkandidat")
+        before = user.password_hash
+        response = self.client.post("/benutzer/%d/passwort" % user.id, data={
+            "csrf_token": self._csrf_for(self.client, "/benutzer/")})
+        reloaded = self._reload("resetkandidat")
+        self.assertNotEqual(before, reloaded.password_hash)
+        self.assertTrue(reloaded.must_change_password)
+        self.assertEqual("no-store", response.headers.get("Cache-Control"))
+
+    def test_totp_reset_clears_the_second_factor(self):
+        from datetime import datetime, timezone
+
+        from portal.db import Session
+
+        user = self._create_user("totpkandidat")
+        # totp_ready is derived from these two columns, there is no setter.
+        user.totp_secret_enc = "irgendein-verschluesseltes-geheimnis"
+        user.totp_confirmed_at = datetime.now(timezone.utc)
+        Session.commit()
+        self.assertTrue(self._reload("totpkandidat").totp_ready)
+
+        user_id = self._reload("totpkandidat").id
+        self.client.post("/benutzer/%d/2fa" % user_id, data={
+            "csrf_token": self._csrf_for(self.client, "/benutzer/")})
+        self.assertFalse(self._reload("totpkandidat").totp_ready)
+
+    def test_unknown_account_yields_404(self):
+        self.assertEqual(404, self.client.get("/benutzer/999999/bearbeiten").status_code)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
