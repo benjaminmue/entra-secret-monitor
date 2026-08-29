@@ -254,6 +254,31 @@ It covers configuration parsing, Graph paging and aggregation, both renderers,
 the request path, and a security group asserting HTML and XML escaping, token
 handling and the response headers against a live server on a loopback port.
 
+## Function inventory
+
+`docs/FUNCTIONS.md` lists every function with its signature, what it returns and
+the first line of its docstring. It is generated, never edited:
+
+```bash
+python3 tools/inventory.py           # regenerate
+python3 tools/inventory.py --check   # exit 1 if stale or newly duplicated
+```
+
+The generator also reports duplicated work, which is the actual point: the same
+function name defined in more than one module, and two bodies that share their
+shape once identifiers are stripped, so renamed copy-paste still shows up. A
+deliberate repeat goes into `ALLOWED_NAME_DUPLICATES` or
+`ALLOWED_STRUCTURE_DUPLICATES` with a reason, and `tests/test_inventory.py`
+fails on anything else, so the document cannot rot and a new duplicate cannot
+land quietly.
+
+It detects copies, not reinvention: a second implementation written from scratch
+with a different shape will not be caught.
+
+The tool runs on both branches. Here it covers `app/` only; on the portal branch
+it also covers `portal/`, so the generated document differs between them by
+design. After a merge, regenerate rather than resolving it by hand.
+
 ## Known limitations
 
 - GUI labels and PRTG channel names are German. Renaming them later renames the

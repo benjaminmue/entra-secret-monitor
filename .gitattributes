@@ -1,6 +1,2 @@
-* text=auto eol=lf
-*.sh   text eol=lf
-*.py   text eol=lf
-Dockerfile text eol=lf
-*.png binary
-*.jpg binary
+# Erzeugt von tools/inventory.py, Diffs sind Rauschen.
+docs/FUNCTIONS.md linguist-generated=true
