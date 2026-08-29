@@ -25,6 +25,7 @@ Environment:
 import html
 import json
 import os
+import re
 import threading
 import time
 import urllib.parse
@@ -38,6 +39,22 @@ import graph
 LISTEN_ADDR = os.environ.get("LISTEN_ADDR", "0.0.0.0")
 LISTEN_PORT = int(os.environ.get("LISTEN_PORT", "8099"))
 API_TOKEN = os.environ.get("API_TOKEN", "")
+
+# Die GUI kommt ohne eigenes JavaScript aus, deshalb darf die Richtlinie Skripte
+# ganz verbieten. Das entschaerft jede Reflexion, die trotz Escaping durchkaeme.
+# nosniff haelt Browser davon ab, eine text/plain-Antwort als HTML zu deuten,
+# no-referrer haelt einen Token in der URL aus dem Referer fremder Seiten.
+SECURITY_HEADERS = (
+    ("X-Content-Type-Options", "nosniff"),
+    ("X-Frame-Options", "DENY"),
+    ("Referrer-Policy", "no-referrer"),
+    ("Content-Security-Policy",
+     "default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'"),
+)
+
+# Ein Token im Query-String darf nicht im Log landen, Container-Logs werden
+# haeufig zentral eingesammelt.
+_TOKEN_IN_QUERY = re.compile(r"([?&]token=)[^&\s]*", re.IGNORECASE)
 CACHE_TTL = int(os.environ.get("CACHE_TTL", "1800"))
 PUSH_INTERVAL = int(os.environ.get("PUSH_INTERVAL", "0"))
 
@@ -333,16 +350,20 @@ class Handler(BaseHTTPRequestHandler):
     server_version = "EntraSecretMonitor/1.0"
 
     def log_message(self, fmt, *args):
-        """Log one line per request without the noisy default timestamp format."""
-        print("%s %s" % (self.address_string(), fmt % args), flush=True)
+        """Log one line per request, with any API token in the URL redacted."""
+        line = "%s %s" % (self.address_string(), fmt % args)
+        print(_TOKEN_IN_QUERY.sub(r"\1<redacted>", line), flush=True)
 
     def _authorized(self, params):
         """Check the optional API token from query string or Bearer header."""
         if not API_TOKEN:
             return True
-        supplied = (params.get("token", [""])[0]
-                    or self.headers.get("Authorization", "").replace("Bearer ", "").strip())
-        return compare_digest(supplied, API_TOKEN)
+        header = self.headers.get("Authorization", "").strip()
+        bearer = header[7:].strip() if header[:7].lower() == "bearer " else ""
+        supplied = params.get("token", [""])[0] or bearer
+        # Als Bytes vergleichen: compare_digest lehnt Zeichen ausserhalb ASCII ab
+        # und wuerfe sonst bei jedem Umlaut im Token einen TypeError im Handler.
+        return compare_digest(supplied.encode("utf-8"), API_TOKEN.encode("utf-8"))
 
     def _send(self, code, body, content_type):
         """Write one complete response."""
@@ -351,6 +372,8 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", content_type + "; charset=utf-8")
         self.send_header("Content-Length", str(len(payload)))
         self.send_header("Cache-Control", "no-store")
+        for name, value in SECURITY_HEADERS:
+            self.send_header(name, value)
         self.end_headers()
         self.wfile.write(payload)
 
