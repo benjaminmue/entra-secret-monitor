@@ -33,6 +33,10 @@ class GraphError(RuntimeError):
     """Raised when Graph or the token endpoint returns an unusable response."""
 
 
+class NoTenantsConfigured(GraphError):
+    """Raised when no tenant is configured at all, as opposed to a broken one."""
+
+
 # --------------------------------------------------------------------------
 # Configuration
 # --------------------------------------------------------------------------
@@ -162,7 +166,8 @@ def load_tenants(env=None, config_path=None):
             tenants[key] = tenant_from_dict(key, entry)
 
     if not tenants:
-        raise GraphError("Keine Tenants konfiguriert (TENANTS/TENANT_ID oder tenants.json)")
+        raise NoTenantsConfigured(
+            "Keine Tenants konfiguriert (TENANTS/TENANT_ID oder tenants.json)")
     return tenants
 
 

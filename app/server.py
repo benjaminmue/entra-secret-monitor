@@ -163,6 +163,10 @@ td.app { white-space: normal; }
 .err-box { background: var(--err-bg); color: var(--err); border-radius: 6px;
   padding: 10px 12px; font-family: ui-monospace, Consolas, monospace; font-size: 12px; }
 .empty { color: var(--muted); font-style: italic; }
+.setup p { margin: 0 0 10px; }
+.setup pre { background: var(--bg); border: 1px solid var(--line); border-radius: 6px;
+  padding: 10px 12px; margin: 0 0 14px; overflow-x: auto;
+  font-family: ui-monospace, Consolas, monospace; font-size: 12px; }
 footer { color: var(--muted); font-size: 12px; margin-top: 24px; }
 """
 
@@ -249,9 +253,59 @@ def render_tenant_block(result, token_qs):
     return "".join(parts)
 
 
-def render_page(results, token_qs, host):
+def render_setup_block():
+    """
+    Render the card shown while no tenant is configured.
+
+    The service is usable before any tenant exists, so a fresh install can be
+    opened in the browser and states what to configure next instead of failing
+    with a bare error page.
+    """
+    path = html.escape(os.environ.get("TENANTS_FILE", "/config/tenants.json"))
+    env_example = html.escape(
+        "TENANTS=contoso\n"
+        "CONTOSO_DISPLAY_NAME=Contoso AG\n"
+        "CONTOSO_TENANT_ID=<Verzeichnis-ID>\n"
+        "CONTOSO_CLIENT_ID=<Anwendungs-ID>\n"
+        "CONTOSO_CERT_PATH=/config/contoso.crt\n"
+        "CONTOSO_KEY_PATH=/config/contoso.key")
+    json_example = html.escape(
+        '{\n'
+        '  "contoso": {\n'
+        '    "display_name": "Contoso AG",\n'
+        '    "tenant_id": "<Verzeichnis-ID>",\n'
+        '    "client_id": "<Anwendungs-ID>",\n'
+        '    "cert_path": "/config/contoso.crt",\n'
+        '    "key_path": "/config/contoso.key"\n'
+        '  }\n'
+        '}')
+    return (
+        '<div class="tenant setup">'
+        '<div class="head"><h2>Kein Tenant eingerichtet</h2></div>'
+        "<p>Der Dienst laeuft, es ist aber noch keine Anwendung hinterlegt. "
+        "Sobald ein Tenant konfiguriert ist, stehen hier die Restlaufzeiten. "
+        "Zwei Wege, wobei die Datei gewinnt wenn beide gesetzt sind:</p>"
+        "<p><strong>1. Umgebungsvariablen</strong>, danach den Dienst neu starten:</p>"
+        "<pre>%s</pre>"
+        "<p><strong>2. Datei <code>%s</code></strong>, wird bei jedem Aufruf neu gelesen, "
+        'ein <a href="/">Neuladen der Seite</a> genuegt:</p>'
+        "<pre>%s</pre>"
+        "<p>Die App-Registrierung braucht ausschliesslich die Anwendungsberechtigung "
+        "<code>Application.Read.All</code> mit Admin-Consent. Ein Zertifikat ist einem "
+        "Client Secret vorzuziehen, weil Entra Secrets bei 24 Monaten kappt. Anlegen "
+        "laesst sich beides mit <code>scripts/New-MonitorAppRegistration.ps1</code>.</p>"
+        "</div>" % (env_example, path, json_example))
+
+
+def render_page(results, token_qs, host, config_error=None):
     """Render the complete overview page for all tenants."""
-    body = "".join(render_tenant_block(r, token_qs) for r in results)
+    if config_error:
+        body = ('<div class="tenant"><div class="head"><h2>Konfigurationsfehler</h2></div>'
+                '<div class="err-box">%s</div></div>' % html.escape(config_error))
+    elif not results:
+        body = render_setup_block()
+    else:
+        body = "".join(render_tenant_block(r, token_qs) for r in results)
     hint = "http://%s/prtg?tenant=&lt;key&gt;%s" % (html.escape(host), token_qs)
     now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
     return (PAGE_TEMPLATE
@@ -322,7 +376,14 @@ class Handler(BaseHTTPRequestHandler):
         try:
             tenants = self._tenants()
         except Exception as exc:                          # noqa: BLE001
-            if route == "/prtg":
+            if route in ("/", "/refresh"):
+                # The GUI stays reachable without a working configuration: an
+                # empty setup shows what to do next, a broken one shows why.
+                host = self.headers.get("Host", "%s:%d" % (LISTEN_ADDR, LISTEN_PORT))
+                config_error = None if isinstance(exc, graph.NoTenantsConfigured) \
+                    else "%s: %s" % (type(exc).__name__, exc)
+                self._send(200, render_page([], token_qs, host, config_error), "text/html")
+            elif route == "/prtg":
                 self._send(200, graph.render_prtg_error(str(exc)), "text/xml")
             else:
                 self._send(500, "Konfigurationsfehler: %s" % exc, "text/plain")
