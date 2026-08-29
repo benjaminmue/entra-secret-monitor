@@ -233,7 +233,26 @@ Restlaufzeit     Ablauf       Typ      App / Credential
 - The container runs as UID 10001, read only, `no-new-privileges`.
 - Mount `./config` read only. Keep private keys at mode 0640.
 - Set `API_TOKEN` whenever the port is reachable beyond a management VLAN, and put
-  a reverse proxy with TLS in front of it if it leaves the host.
+  a reverse proxy with TLS in front of it if it leaves the host. The token is
+  accepted as `?token=` for PRTG, which cannot send headers, or as
+  `Authorization: Bearer <token>` where the client can. It is redacted from the
+  access log either way.
+- Every response carries `X-Content-Type-Options: nosniff`, `X-Frame-Options:
+  DENY`, `Referrer-Policy: no-referrer` and a content security policy of
+  `default-src 'none'`. The GUI ships no JavaScript, so scripts are forbidden
+  outright rather than allow-listed.
+
+## Tests
+
+The suite is standard library only, no dependencies and no network:
+
+```bash
+python3 -m unittest discover -s tests -t .
+```
+
+It covers configuration parsing, Graph paging and aggregation, both renderers,
+the request path, and a security group asserting HTML and XML escaping, token
+handling and the response headers against a live server on a loopback port.
 
 ## Known limitations
 
