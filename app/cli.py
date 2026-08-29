@@ -15,6 +15,7 @@ or pushes the XML to a PRTG HTTP Push Data Advanced sensor.
 import argparse
 import json
 import sys
+from dataclasses import replace
 
 import graph
 
@@ -45,25 +46,32 @@ def parse_args(argv=None):
     return parser.parse_args(argv)
 
 
+# Kommandozeilenargument -> Feld in TenantConfig. Argumente, die None sein
+# koennen, werden nur bei einem Wert uebernommen.
+_OVERRIDABLE = (("warn", "warn_days"), ("error", "error_days"),
+                ("filter", "app_filter"), ("exclude", "app_exclude"),
+                ("max_channels", "max_channels"), ("push", "push_url"))
+
+
 def apply_overrides(cfg, args):
-    """Let command line arguments win over the configured tenant defaults."""
-    if args.warn is not None:
-        cfg.warn_days = args.warn
-    if args.error is not None:
-        cfg.error_days = args.error
-    if args.filter is not None:
-        cfg.app_filter = args.filter
-    if args.exclude is not None:
-        cfg.app_exclude = args.exclude
+    """
+    Let command line arguments win over the configured tenant defaults.
+
+    Copies through dataclasses.replace rather than assigning fields, so
+    __post_init__ runs and its invariants, above all the channel limit, hold for
+    CLI runs the same way they do for requests.
+    """
+    changes = {}
+    for arg_name, field in _OVERRIDABLE:
+        value = getattr(args, arg_name)
+        if value is not None:
+            changes[field] = value
+    # Die beiden Schalter kennen kein None, gesetzt heisst an.
     if args.include_sp:
-        cfg.include_sp = True
+        changes["include_sp"] = True
     if args.show_expired:
-        cfg.show_expired = True
-    if args.max_channels is not None:
-        cfg.max_channels = args.max_channels
-    if args.push is not None:
-        cfg.push_url = args.push
-    return cfg
+        changes["show_expired"] = True
+    return replace(cfg, **changes) if changes else cfg
 
 
 def select_tenant(tenants, wanted):

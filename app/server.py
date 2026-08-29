@@ -92,9 +92,16 @@ def apply_overrides(cfg, params):
                         ("max_channels", "max_channels")):
         if name in params:
             try:
-                changes[field] = int(params[name][0])
+                value = int(params[name][0])
             except ValueError:
                 raise ValueError("Parameter '%s' ist keine Zahl: %s" % (name, params[name][0]))
+            # Anders als in der Konfiguration wird hier abgewiesen statt geklemmt:
+            # ein Request-Override ist eine bewusste Eingabe, die Rueckmeldung
+            # verdient statt still korrigiert zu werden.
+            if field == "max_channels" and not 1 <= value <= graph.MAX_APP_CHANNELS:
+                raise ValueError("Parameter 'max_channels' muss zwischen 1 und %d liegen: %d"
+                                 % (graph.MAX_APP_CHANNELS, value))
+            changes[field] = value
     return replace(cfg, **changes) if changes else cfg
 
 
