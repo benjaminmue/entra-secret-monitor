@@ -14,10 +14,6 @@ from flask import Flask, g, render_template, request
 from flask_login import LoginManager, current_user
 from flask_wtf.csrf import CSRFProtect
 
-# app/ holds the Graph logic that both the classic service and the portal use.
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                                "app"))
-
 from portal import audit, scheduler                                    # noqa: E402
 from portal.config import load_config                                  # noqa: E402
 from portal.db import Session, create_all, init_engine, remove_session  # noqa: E402

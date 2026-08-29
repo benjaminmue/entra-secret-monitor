@@ -21,17 +21,10 @@ from portal.models import (AUTH_CERT, CheckRun, CredentialSnapshot, Customer,
 from portal.scanner import data_age_hours, inspect_certificate
 from portal.views.docs import base_url
 from portal.views.dashboard import customer_state
-from portal.views.helpers import config, form_errors, require_role, require_write
+from portal.views.helpers import (config, form_errors, get_or_404, require_role,
+                                  require_write)
 
 bp = Blueprint("customers", __name__, url_prefix="/kunden")
-
-
-def _get_or_404(customer_id):
-    """Load a customer or raise 404."""
-    customer = Session.get(Customer, customer_id)
-    if customer is None:
-        abort(404)
-    return customer
 
 
 def _apply_credentials(form, customer, cfg, is_new):
@@ -136,7 +129,7 @@ def create():
 def edit(customer_id):
     """Change the settings or the credential of an existing customer."""
     cfg = config()
-    customer = _get_or_404(customer_id)
+    customer = get_or_404(Customer, customer_id)
     form = CustomerForm(obj=customer) if request.method == "GET" else CustomerForm()
 
     if form.validate_on_submit():
@@ -166,7 +159,7 @@ def edit(customer_id):
 @login_required
 def detail(customer_id):
     """Show the stored credential state of one customer plus its run history."""
-    customer = _get_or_404(customer_id)
+    customer = get_or_404(Customer, customer_id)
     credentials = Session.execute(
         select(CredentialSnapshot).where(CredentialSnapshot.customer_id == customer.id)
         .order_by(CredentialSnapshot.days_left.asc())).scalars().all()
@@ -192,7 +185,7 @@ def force(customer_id):
     slot, so a force check costs no extra Graph call later.
     """
     cfg = config()
-    customer = _get_or_404(customer_id)
+    customer = get_or_404(Customer, customer_id)
     form = ConfirmForm()
     if not form.validate_on_submit():
         abort(400)
@@ -216,7 +209,7 @@ def force(customer_id):
 def rotate_token(customer_id):
     """Issue a new PRTG token, invalidating the old sensor URL."""
     cfg = config()
-    customer = _get_or_404(customer_id)
+    customer = get_or_404(Customer, customer_id)
     if not ConfirmForm().validate_on_submit():
         abort(400)
     customer.prtg_token = new_token()
@@ -233,7 +226,7 @@ def rotate_token(customer_id):
 def delete(customer_id):
     """Remove a customer with its history; only administrators may do this."""
     cfg = config()
-    customer = _get_or_404(customer_id)
+    customer = get_or_404(Customer, customer_id)
     if not ConfirmForm().validate_on_submit():
         abort(400)
     key = customer.key

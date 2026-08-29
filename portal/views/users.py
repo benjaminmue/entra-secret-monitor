@@ -19,17 +19,9 @@ from portal import audit, security
 from portal.db import Session
 from portal.forms import ConfirmForm, UserForm
 from portal.models import ROLE_ADMIN, RecoveryCode, User, utcnow
-from portal.views.helpers import config, form_errors, require_role
+from portal.views.helpers import config, form_errors, get_or_404, require_role
 
 bp = Blueprint("users", __name__, url_prefix="/benutzer")
-
-
-def _get_or_404(user_id):
-    """Load a user or raise 404."""
-    user = Session.get(User, user_id)
-    if user is None:
-        abort(404)
-    return user
 
 
 def _last_admin(user):
@@ -112,7 +104,7 @@ def create():
 def edit(user_id):
     """Change role, contact data or the active state of an account."""
     cfg = config()
-    user = _get_or_404(user_id)
+    user = get_or_404(User, user_id)
     form = UserForm(obj=user) if request.method == "GET" else UserForm()
 
     if form.validate_on_submit():
@@ -148,7 +140,7 @@ def edit(user_id):
 def reset_password(user_id):
     """Issue a new one time password for an account."""
     cfg = config()
-    user = _get_or_404(user_id)
+    user = get_or_404(User, user_id)
     if not ConfirmForm().validate_on_submit():
         abort(400)
     password = security.suggest_password()
@@ -169,7 +161,7 @@ def reset_password(user_id):
 def reset_totp(user_id):
     """Clear the second factor so the account enrols a new authenticator."""
     cfg = config()
-    user = _get_or_404(user_id)
+    user = get_or_404(User, user_id)
     if not ConfirmForm().validate_on_submit():
         abort(400)
     user.totp_secret_enc = ""
@@ -190,7 +182,7 @@ def reset_totp(user_id):
 def delete(user_id):
     """Delete an account, except the last administrator and oneself."""
     cfg = config()
-    user = _get_or_404(user_id)
+    user = get_or_404(User, user_id)
     if not ConfirmForm().validate_on_submit():
         abort(400)
     if user.id == current_user.id:

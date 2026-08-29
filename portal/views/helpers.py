@@ -11,12 +11,26 @@ from functools import wraps
 from flask import abort, current_app, flash, redirect, url_for
 from flask_login import current_user
 
+from portal.db import Session
 from portal.models import ROLE_ADMIN, ROLE_OPERATOR
 
 
 def config():
     """Return the PortalConfig of the running application."""
     return current_app.config["PORTAL"]
+
+
+def get_or_404(model, primary_key):
+    """
+    Load one record by primary key or abort with 404.
+
+    Shared rather than repeated per blueprint: the customer and the user view
+    had the same four lines, differing only in the model they looked up.
+    """
+    record = Session.get(model, primary_key)
+    if record is None:
+        abort(404)
+    return record
 
 
 def require_role(*roles):

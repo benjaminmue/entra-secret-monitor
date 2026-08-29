@@ -14,6 +14,10 @@ import base64
 import os
 from dataclasses import dataclass, field
 
+# Dieselben Konventionen fuer Umgebungsvariablen wie der klassische
+# Dienst; frueher lagen hier wortgleiche Kopien.
+from graph import as_bool, as_int
+
 # Environment variables that must be present, mapped to a short explanation
 # used in the error message when they are missing.
 REQUIRED = {
@@ -24,21 +28,6 @@ REQUIRED = {
 
 class ConfigError(RuntimeError):
     """Raised when the environment does not describe a usable portal."""
-
-
-def _as_bool(value, default=False):
-    """Interpret common truthy strings from environment variables."""
-    if value is None or value == "":
-        return default
-    return str(value).strip().lower() in ("1", "true", "yes", "ja", "on")
-
-
-def _as_int(value, default):
-    """Parse an integer from an environment variable, falling back on default."""
-    try:
-        return int(str(value).strip())
-    except (TypeError, ValueError):
-        return default
 
 
 @dataclass
@@ -114,25 +103,25 @@ def load_config(env=None):
         secret_key=env["PORTAL_SECRET_KEY"],
         encryption_key=_read_encryption_key(env["PORTAL_ENCRYPTION_KEY"]),
         database_url=env.get("PORTAL_DATABASE_URL", "sqlite:////data/portal.db"),
-        session_minutes=_as_int(env.get("PORTAL_SESSION_MINUTES"), 60),
-        cookie_secure=_as_bool(env.get("PORTAL_COOKIE_SECURE"), True),
-        login_max_attempts=_as_int(env.get("PORTAL_LOGIN_MAX_ATTEMPTS"), 5),
-        lockout_minutes=_as_int(env.get("PORTAL_LOCKOUT_MINUTES"), 15),
-        password_min_length=_as_int(env.get("PORTAL_PASSWORD_MIN_LENGTH"), 12),
-        scheduler_enabled=_as_bool(env.get("PORTAL_SCHEDULER"), True),
-        tick_seconds=_as_int(env.get("PORTAL_TICK_SECONDS"), 60),
-        gap_seconds=_as_int(env.get("PORTAL_GAP_SECONDS"), 10),
-        stale_hours=_as_int(env.get("PORTAL_STALE_HOURS"), 30),
-        history_runs=_as_int(env.get("PORTAL_HISTORY_RUNS"), 30),
-        default_warn_days=_as_int(env.get("PORTAL_WARN_DAYS"), 30),
-        default_error_days=_as_int(env.get("PORTAL_ERROR_DAYS"), 14),
+        session_minutes=as_int(env.get("PORTAL_SESSION_MINUTES"), 60),
+        cookie_secure=as_bool(env.get("PORTAL_COOKIE_SECURE"), True),
+        login_max_attempts=as_int(env.get("PORTAL_LOGIN_MAX_ATTEMPTS"), 5),
+        lockout_minutes=as_int(env.get("PORTAL_LOCKOUT_MINUTES"), 15),
+        password_min_length=as_int(env.get("PORTAL_PASSWORD_MIN_LENGTH"), 12),
+        scheduler_enabled=as_bool(env.get("PORTAL_SCHEDULER"), True),
+        tick_seconds=as_int(env.get("PORTAL_TICK_SECONDS"), 60),
+        gap_seconds=as_int(env.get("PORTAL_GAP_SECONDS"), 10),
+        stale_hours=as_int(env.get("PORTAL_STALE_HOURS"), 30),
+        history_runs=as_int(env.get("PORTAL_HISTORY_RUNS"), 30),
+        default_warn_days=as_int(env.get("PORTAL_WARN_DAYS"), 30),
+        default_error_days=as_int(env.get("PORTAL_ERROR_DAYS"), 14),
         bootstrap_user=env.get("PORTAL_BOOTSTRAP_USER", ""),
         bootstrap_password=env.get("PORTAL_BOOTSTRAP_PASSWORD", ""),
         listen_addr=env.get("LISTEN_ADDR", "0.0.0.0"),
-        listen_port=_as_int(env.get("LISTEN_PORT"), 8099),
+        listen_port=as_int(env.get("LISTEN_PORT"), 8099),
         base_url=env.get("PORTAL_BASE_URL", "").rstrip("/"),
         instance_name=env.get("PORTAL_INSTANCE_NAME", "Entra Credential Monitor"),
-        trust_proxy=_as_bool(env.get("PORTAL_TRUST_PROXY"), False),
+        trust_proxy=as_bool(env.get("PORTAL_TRUST_PROXY"), False),
     )
 
     if cfg.password_min_length < 12:

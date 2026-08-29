@@ -16,25 +16,25 @@ from .support import VALID_CLIENT, VALID_TENANT, graph_object, make_config, make
 class AsBoolTest(unittest.TestCase):
     def test_truthy_spellings(self):
         for value in ("1", "true", "TRUE", " yes ", "ja", "on"):
-            self.assertTrue(graph._as_bool(value), value)
+            self.assertTrue(graph.as_bool(value), value)
 
     def test_falsy_and_unknown_values(self):
         for value in ("0", "false", "nein", "off", "vielleicht"):
-            self.assertFalse(graph._as_bool(value), value)
+            self.assertFalse(graph.as_bool(value), value)
 
     def test_empty_and_none_fall_back_to_default(self):
-        self.assertTrue(graph._as_bool("", default=True))
-        self.assertTrue(graph._as_bool(None, default=True))
-        self.assertFalse(graph._as_bool("", default=False))
+        self.assertTrue(graph.as_bool("", default=True))
+        self.assertTrue(graph.as_bool(None, default=True))
+        self.assertFalse(graph.as_bool("", default=False))
 
 
 class AsIntTest(unittest.TestCase):
     def test_parses_surrounding_whitespace(self):
-        self.assertEqual(graph._as_int(" 42 ", 7), 42)
+        self.assertEqual(graph.as_int(" 42 ", 7), 42)
 
     def test_falls_back_on_garbage(self):
         for value in ("abc", "", None, "1.5"):
-            self.assertEqual(graph._as_int(value, 7), 7, value)
+            self.assertEqual(graph.as_int(value, 7), 7, value)
 
 
 class ClampChannelsTest(unittest.TestCase):
