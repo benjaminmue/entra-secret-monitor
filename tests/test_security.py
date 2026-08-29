@@ -5,18 +5,14 @@ The HTTP cases run against a real server on a loopback port, because response
 headers and the reflection behaviour of an error page cannot be observed by
 calling the render functions alone.
 """
-import threading
 import unittest
-import urllib.error
-import urllib.request
-from http.server import ThreadingHTTPServer
 from unittest import mock
 from xml.etree import ElementTree
 
 import graph
 import server
 
-from .support import make_config, make_credential
+from .support import LiveServer, make_config, make_credential
 
 XSS = "<script>alert(1)</script>"
 XML_BREAKER = "]]></text><injected>x</injected><text>"
@@ -117,41 +113,18 @@ class LiveServerTest(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        cls._patches = [
-            mock.patch.object(server, "API_TOKEN", cls.TOKEN),
-            # Ohne das schreibt jede Testanfrage eine Zugriffszeile in die Ausgabe.
-            mock.patch.object(server.Handler, "log_message", lambda *a, **k: None),
-            mock.patch.object(server.Handler, "_tenants",
-                              lambda self: {"demo": make_config()}),
-            mock.patch.object(server, "get_result_safe",
-                              lambda cfg, force=False: graph.build_result(
-                                  [make_credential(app_name="Alpha")], cfg)),
-        ]
-        for patch in cls._patches:
-            patch.start()
-        cls.httpd = ThreadingHTTPServer(("127.0.0.1", 0), server.Handler)
-        cls.port = cls.httpd.server_address[1]
-        cls.thread = threading.Thread(target=cls.httpd.serve_forever, daemon=True)
-        cls.thread.start()
+        cls.server = LiveServer(
+            tenants={"demo": make_config()}, token=cls.TOKEN,
+            result=lambda cfg: graph.build_result(
+                [make_credential(app_name="Alpha")], cfg)).start()
 
     @classmethod
     def tearDownClass(cls):
-        cls.httpd.shutdown()
-        cls.httpd.server_close()
-        cls.thread.join(timeout=5)
-        for patch in cls._patches:
-            patch.stop()
+        cls.server.stop()
 
     def get(self, path, headers=None):
-        """Return (status, headers, body) without raising on 4xx."""
-        request = urllib.request.Request("http://127.0.0.1:%d%s" % (self.port, path),
-                                         headers=headers or {})
-        try:
-            with urllib.request.urlopen(request, timeout=10) as response:
-                return response.status, dict(response.headers), response.read().decode()
-        except urllib.error.HTTPError as exc:
-            with exc:
-                return exc.code, dict(exc.headers), exc.read().decode()
+        """Delegate to the shared server helper."""
+        return self.server.get(path, headers)
 
     # -- authentication ----------------------------------------------------
 

@@ -57,3 +57,109 @@ def graph_object(name="App", object_id="object-id", app_id="app-id",
 
     return {"id": object_id, "appId": app_id, "displayName": name,
             "passwordCredentials": entries(secrets), "keyCredentials": entries(certs)}
+
+
+class LiveServer:
+    """
+    A real HTTP server on a loopback port, for tests that need the handler.
+
+    Response headers, status codes and the reflection behaviour of the error
+    pages cannot be observed by calling the render functions, so several test
+    classes need this. It lives here so they do not each grow their own copy.
+    """
+
+    def __init__(self, tenants=None, token="", result=None):
+        self.tenants = tenants
+        self.token = token
+        self.result = result
+        self._patches = []
+        self.httpd = None
+        self.thread = None
+
+    def start(self):
+        """Patch the module globals, then serve in a background thread."""
+        import threading
+        from http.server import ThreadingHTTPServer
+        from unittest import mock
+
+        import server
+
+        self._patches = [
+            mock.patch.object(server, "API_TOKEN", self.token),
+            # Ohne das schreibt jede Testanfrage eine Zugriffszeile in die Ausgabe.
+            mock.patch.object(server.Handler, "log_message", lambda *a, **k: None),
+        ]
+        if self.tenants is not None:
+            self._patches.append(mock.patch.object(
+                server.Handler, "_tenants", lambda handler: self.tenants))
+        if self.result is not None:
+            self._patches.append(mock.patch.object(
+                server, "get_result_safe", lambda cfg, force=False: self.result(cfg)))
+            self._patches.append(mock.patch.object(
+                server, "get_result", lambda cfg, force=False: self.result(cfg)))
+        for patch in self._patches:
+            patch.start()
+
+        self.httpd = ThreadingHTTPServer(("127.0.0.1", 0), server.Handler)
+        self.port = self.httpd.server_address[1]
+        self.thread = threading.Thread(target=self.httpd.serve_forever, daemon=True)
+        self.thread.start()
+        return self
+
+    def stop(self):
+        """Shut the server down and undo every patch."""
+        self.httpd.shutdown()
+        self.httpd.server_close()
+        self.thread.join(timeout=5)
+        for patch in self._patches:
+            patch.stop()
+
+    def get(self, path, headers=None):
+        """Return (status, headers, body) without raising on a 4xx or 5xx."""
+        import urllib.error
+        import urllib.request
+
+        request = urllib.request.Request("http://127.0.0.1:%d%s" % (self.port, path),
+                                         headers=headers or {})
+        try:
+            with urllib.request.urlopen(request, timeout=10) as response:
+                return response.status, dict(response.headers), response.read().decode()
+        except urllib.error.HTTPError as exc:
+            with exc:
+                return exc.code, dict(exc.headers), exc.read().decode()
+
+
+def make_certificate(days=365, key=None):
+    """
+    Build a throwaway self signed certificate and its private key, both PEM.
+
+    Generated rather than checked in, so nothing that looks like a credential
+    ever sits in the repository and the validity dates stay relative to today.
+    Pass `key` to sign with a different key than the one returned, which is how
+    a mismatched pair is produced.
+    """
+    from datetime import timedelta
+
+    from cryptography import x509
+    from cryptography.hazmat.primitives import hashes, serialization
+    from cryptography.hazmat.primitives.asymmetric import rsa
+    from cryptography.x509.oid import NameOID
+
+    private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    subject = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "entra-monitor-test")])
+    now = datetime.now(timezone.utc)
+    certificate = (x509.CertificateBuilder()
+                   .subject_name(subject)
+                   .issuer_name(subject)
+                   .public_key((key or private_key).public_key())
+                   .serial_number(x509.random_serial_number())
+                   .not_valid_before(now - timedelta(days=1))
+                   .not_valid_after(now + timedelta(days=days))
+                   .sign(private_key, hashes.SHA256()))
+
+    cert_pem = certificate.public_bytes(serialization.Encoding.PEM).decode()
+    key_pem = private_key.private_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PrivateFormat.PKCS8,
+        encryption_algorithm=serialization.NoEncryption()).decode()
+    return cert_pem, key_pem

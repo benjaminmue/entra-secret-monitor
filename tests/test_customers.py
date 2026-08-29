@@ -10,7 +10,7 @@ import os
 import re
 import unittest
 
-from .support import needs_portal
+from .support import make_certificate, needs_portal
 
 try:
     import pyotp
@@ -126,11 +126,79 @@ class CustomerAdministrationTests(unittest.TestCase):
             "warn_days": 30, "error_days": 14, "max_channels": 45, "is_active": "y"})
         self.assertIsNone(self._reload("ohnegeheimnis"))
 
+    def test_a_certificate_pair_is_stored_with_key_encrypted(self):
+        cert_pem, key_pem = make_certificate()
+        self.client.post("/kunden/neu", data={
+            "csrf_token": self._csrf_for(self.client, "/kunden/neu"),
+            "key": "zertkunde", "display_name": "Zert", "tenant_id": TENANT_GUID,
+            "client_id": CLIENT_GUID, "auth_type": "certificate",
+            "cert_pem": cert_pem, "key_pem": key_pem,
+            "warn_days": 30, "error_days": 14, "max_channels": 45, "is_active": "y"})
+        customer = self._reload("zertkunde")
+        self.assertIsNotNone(customer, "Zertifikatskunde wurde nicht angelegt")
+        # The certificate is public and stored as is; the private key is not.
+        self.assertIn("BEGIN CERTIFICATE", customer.cert_pem)
+        self.assertNotIn("PRIVATE KEY", customer.key_pem_enc)
+        self.assertTrue(customer.cert_thumbprint)
+        self.assertIsNotNone(customer.cert_not_after)
+
+    def test_the_stored_private_key_decrypts_back(self):
+        from portal import crypto
+
+        cert_pem, key_pem = make_certificate()
+        self.client.post("/kunden/neu", data={
+            "csrf_token": self._csrf_for(self.client, "/kunden/neu"),
+            "key": "zertrueck", "display_name": "Zert", "tenant_id": TENANT_GUID,
+            "client_id": CLIENT_GUID, "auth_type": "certificate",
+            "cert_pem": cert_pem, "key_pem": key_pem,
+            "warn_days": 30, "error_days": 14, "max_channels": 45, "is_active": "y"})
+        customer = self._reload("zertrueck")
+        restored = crypto.decrypt(
+            customer.key_pem_enc, self.app.config["PORTAL"].encryption_key,
+            crypto.aad_for("customer", customer.key, "key_pem_enc"))
+        # Beim Speichern wird getrimmt, der Inhalt muss aber gleich sein.
+        self.assertEqual(key_pem.strip(), restored.strip())
+
+    def test_a_mismatched_pair_is_refused(self):
+        # Otherwise the mistake only surfaces as a Graph error hours later.
+        from cryptography.hazmat.primitives.asymmetric import rsa
+
+        cert_pem, _ = make_certificate(key=rsa.generate_private_key(
+            public_exponent=65537, key_size=2048))
+        _, other_key = make_certificate()
+        self.client.post("/kunden/neu", data={
+            "csrf_token": self._csrf_for(self.client, "/kunden/neu"),
+            "key": "falschespaar", "display_name": "Falsch", "tenant_id": TENANT_GUID,
+            "client_id": CLIENT_GUID, "auth_type": "certificate",
+            "cert_pem": cert_pem, "key_pem": other_key,
+            "warn_days": 30, "error_days": 14, "max_channels": 45, "is_active": "y"})
+        self.assertIsNone(self._reload("falschespaar"))
+
+    def test_switching_to_a_secret_clears_the_certificate(self):
+        cert_pem, key_pem = make_certificate()
+        self.client.post("/kunden/neu", data={
+            "csrf_token": self._csrf_for(self.client, "/kunden/neu"),
+            "key": "wechselkunde", "display_name": "Wechsel", "tenant_id": TENANT_GUID,
+            "client_id": CLIENT_GUID, "auth_type": "certificate",
+            "cert_pem": cert_pem, "key_pem": key_pem,
+            "warn_days": 30, "error_days": 14, "max_channels": 45, "is_active": "y"})
+        customer = self._reload("wechselkunde")
+        self.client.post("/kunden/%d/bearbeiten" % customer.id, data={
+            "csrf_token": self._csrf_for(self.client,
+                                         "/kunden/%d/bearbeiten" % customer.id),
+            "key": "wechselkunde", "display_name": "Wechsel", "tenant_id": TENANT_GUID,
+            "client_id": CLIENT_GUID, "auth_type": "secret", "client_secret": SECRET,
+            "warn_days": 30, "error_days": 14, "max_channels": 45, "is_active": "y"})
+        reloaded = self._reload("wechselkunde")
+        self.assertTrue(reloaded.client_secret_enc)
+        self.assertEqual("", reloaded.cert_pem, "das alte Zertifikat blieb stehen")
+        self.assertEqual("", reloaded.key_pem_enc)
+
     def test_certificate_half_a_pair_is_refused(self):
         self.client.post("/kunden/neu", data={
             "csrf_token": self._csrf_for(self.client, "/kunden/neu"),
             "key": "halbzert", "display_name": "Halb", "tenant_id": TENANT_GUID,
-            "client_id": CLIENT_GUID, "auth_type": "cert",
+            "client_id": CLIENT_GUID, "auth_type": "certificate",
             "cert_pem": "-----BEGIN CERTIFICATE-----", "key_pem": "",
             "warn_days": 30, "error_days": 14, "max_channels": 45, "is_active": "y"})
         self.assertIsNone(self._reload("halbzert"))
@@ -206,6 +274,51 @@ class CustomerAdministrationTests(unittest.TestCase):
 
     def test_unknown_customer_yields_404(self):
         self.assertEqual(404, self.client.get("/kunden/999999").status_code)
+
+    def test_a_forced_check_runs_the_scan_and_reports_the_outcome(self):
+        from unittest import mock
+
+        from portal import scheduler
+
+        customer = self._create("sofortkunde")
+        with mock.patch.object(scheduler, "force_check",
+                               return_value=("ok", "")) as forced:
+            response = self.client.post("/kunden/%d/pruefen" % customer.id, data={
+                "csrf_token": self._csrf_for(self.client, "/kunden/%d" % customer.id)})
+        self.assertEqual(302, response.status_code)
+        forced.assert_called_once()
+        self.assertEqual(customer.id, forced.call_args[0][0])
+
+    def test_a_blocked_forced_check_reports_instead_of_hanging(self):
+        # force_check waits for the shared lock and gives up; the page has to
+        # say so rather than presenting a silent failure.
+        from unittest import mock
+
+        from portal import scheduler
+
+        customer = self._create("blockierterkunde")
+        with mock.patch.object(scheduler, "force_check",
+                               side_effect=TimeoutError("blockiert seit 120 s")):
+            response = self.client.post("/kunden/%d/pruefen" % customer.id, data={
+                "csrf_token": self._csrf_for(self.client, "/kunden/%d" % customer.id)},
+                follow_redirects=True)
+        self.assertIn("blockiert", response.get_data(as_text=True))
+
+    def test_a_forced_check_needs_a_csrf_token(self):
+        customer = self._create("csrfpruefkunde")
+        self.assertEqual(400,
+                         self.client.post("/kunden/%d/pruefen" % customer.id).status_code)
+
+    def test_slots_can_be_redistributed_over_the_endpoint(self):
+        self._create("verteilkunde1")
+        self._create("verteilkunde2")
+        response = self.client.post("/kunden/slots", data={
+            "csrf_token": self._csrf_for(self.client, "/")}, follow_redirects=True)
+        self.assertEqual(200, response.status_code)
+        self.assertIn("verteilt", response.get_data(as_text=True))
+
+    def test_redistribution_needs_a_csrf_token(self):
+        self.assertEqual(400, self.client.post("/kunden/slots").status_code)
 
 
 @needs_portal
@@ -329,6 +442,52 @@ class SchedulerTests(unittest.TestCase):
 
         with self.assertRaises(LookupError):
             scheduler.force_check(999999, b"\x00" * 32, actor="test")
+
+    def test_the_due_run_skips_customers_whose_slot_has_not_come(self):
+        from unittest import mock
+
+        from portal import scheduler
+
+        self._customer("spaeter", slot=23 * 60 + 59)
+        stop = mock.Mock(is_set=mock.Mock(return_value=False))
+        with mock.patch.object(scheduler, "run_check") as ran:
+            scheduler._run_due(b"\x00" * 32, 0, 5, stop)
+        ran.assert_not_called()
+
+    def test_the_due_run_stops_when_asked_to(self):
+        # A shutdown must not wait for every remaining tenant.
+        from unittest import mock
+
+        from portal import scheduler
+
+        for index in range(3):
+            self._customer("kunde%d" % index, slot=0)
+        stop = mock.Mock(is_set=mock.Mock(return_value=True))
+        with mock.patch.object(scheduler, "run_check") as ran:
+            scheduler._run_due(b"\x00" * 32, 0, 5, stop)
+        ran.assert_not_called()
+
+    def test_a_failing_scan_does_not_stop_the_others(self):
+        from unittest import mock
+
+        from portal import scheduler
+        from portal.db import Session
+        from portal.models import Customer
+
+        for index in range(2):
+            customer = self._customer("fehlerkunde%d" % index, slot=0)
+            customer.last_check_at = None
+            customer.is_active = True
+        Session.commit()
+        self.assertGreaterEqual(Session.query(Customer).count(), 2)
+
+        stop = mock.Mock(is_set=mock.Mock(return_value=False))
+        with mock.patch.object(scheduler, "run_check",
+                               side_effect=RuntimeError("Graph weg")) as ran, \
+             mock.patch("builtins.print") as printed:
+            scheduler._run_due(b"\x00" * 32, 0, 5, stop)
+        self.assertGreaterEqual(ran.call_count, 2, "der Lauf brach beim ersten Fehler ab")
+        self.assertIn("abgebrochen", str(printed.call_args_list))
 
     def test_force_check_gives_up_when_a_run_holds_the_lock(self):
         # Queueing behind a scheduled run is intended; blocking forever is not.
