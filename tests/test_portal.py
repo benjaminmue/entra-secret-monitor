@@ -24,7 +24,16 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 sys.path.insert(0, os.path.join(ROOT, "app"))
 
-import pyotp                                                            # noqa: E402
+try:                                                                    # noqa: E402
+    import pyotp
+    PORTAL_DEPS_AVAILABLE = True
+except ImportError:                     # Flask, argon2 und pyotp sind Extras,
+    pyotp = None                        # der Dienst in app/ bleibt reine stdlib.
+    PORTAL_DEPS_AVAILABLE = False
+
+needs_portal = unittest.skipUnless(
+    PORTAL_DEPS_AVAILABLE,
+    "Portal-Abhaengigkeiten fehlen, siehe requirements-portal.txt")
 
 BOOTSTRAP_PASSWORD = "Start!Passwort2026x"
 NEW_PASSWORD = "Zaun#Kies7Vogel!Lampe"
@@ -73,6 +82,7 @@ def fake_scan(cfg):
     }
 
 
+@needs_portal
 class SecurityUnitTests(unittest.TestCase):
     """Password policy and credential encryption, without a running app."""
 
@@ -163,6 +173,7 @@ class SecurityUnitTests(unittest.TestCase):
         self.assertFalse(again)
 
 
+@needs_portal
 class SchedulingTests(unittest.TestCase):
     """Slot distribution and the once per day rule."""
 
@@ -193,6 +204,7 @@ class SchedulingTests(unittest.TestCase):
         self.assertFalse(is_due(customer, now))
 
 
+@needs_portal
 class PortalFlowTests(unittest.TestCase):
     """The full path from first login to a working PRTG sensor."""
 
@@ -527,6 +539,7 @@ class PortalFlowTests(unittest.TestCase):
             Session.commit()
 
 
+@needs_portal
 class UserAdministrationTests(unittest.TestCase):
     """
     The account administration carries the role separation of the portal.
