@@ -60,10 +60,18 @@ GET /applications?$select=id,appId,displayName,passwordCredentials,keyCredential
 GET /servicePrincipals?...        (optional, for enterprise apps and SAML certificates)
 ```
 
-Credentials are grouped **per application and credential type**, and the group
+Credentials are grouped **per Graph object and credential type**, and the group
 reports the **longest** remaining runtime. That is deliberate: once a new secret
 has been rolled, the old one is irrelevant and must not raise an alarm. Fully
 expired leftovers are hidden unless `show_expired` is set.
+
+Grouping keys on the object id rather than the display name, because two
+registrations can share a name, and an application and its service principal
+always do. Keyed on the name, one healthy credential would hide an expiring one
+belonging to a different object entirely. Where names then collide, the channel
+gets the smallest suffix that separates the group: `[App]` or `[SP]`, otherwise
+the appId, and the object id as a last resort. A name that does not collide is
+left alone, so existing sensors keep their history.
 
 Results are cached (`CACHE_TTL`, default 30 minutes), so a five minute PRTG
 interval does not hammer Graph.
