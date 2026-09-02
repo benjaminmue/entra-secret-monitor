@@ -10,7 +10,9 @@ are the ones that actually work on this instance instead of placeholders
 from a README.
 """
 
-from flask import Blueprint, render_template, request
+from pathlib import Path
+
+from flask import Blueprint, abort, render_template, request, send_file
 from flask_login import login_required
 from sqlalchemy import select
 
@@ -31,6 +33,13 @@ PERMISSION = {
     "consent": "Erfordert Administratorzustimmung im Kundentenant",
 }
 
+# The setup script Variante A of the guide refers to. It sits next to the
+# package: under <repo>/scripts in the working tree, under /opt/portal/scripts
+# in the image. Both are the same two levels above this file, because
+# portal/views/ -> portal/ -> root holds either way.
+SETUP_SCRIPT = (Path(__file__).resolve().parents[2] / "scripts"
+                / "New-MonitorAppRegistration.ps1")
+
 
 def base_url():
     """Return the externally reachable base URL of this instance."""
@@ -46,3 +55,22 @@ def index():
         select(Customer).order_by(Customer.display_name.asc())).scalars().all()
     return render_template("docs.html", permission=PERMISSION, base=base_url(),
                            customers=customers, cfg=config())
+
+
+@bp.route("/skript")
+@login_required
+def setup_script():
+    """
+    Hand out the setup script that Variante A of the guide refers to.
+
+    Without this route the file exists only in the repository: the image
+    carries app/ and portal/ and nothing else, so the documented call went
+    nowhere on a running instance. The script holds no secret, it creates
+    them, which is why every signed in account may fetch it.
+    """
+    if not SETUP_SCRIPT.is_file():
+        abort(404, description="Das Einrichtungsskript liegt nicht in diesem Abbild. "
+                               "Es stammt aus scripts/ des Projektarchivs.")
+    return send_file(SETUP_SCRIPT, mimetype="text/plain",
+                     as_attachment=True,
+                     download_name="New-MonitorAppRegistration.ps1")

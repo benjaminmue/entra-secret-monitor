@@ -35,10 +35,14 @@
   <p class="lead">Legt die App-Registrierung an, erzeugt ein Zertifikat, hinterlegt den
     öffentlichen Teil im Tenant und gibt Zertifikat und Schlüssel als PEM aus.
     Benötigt PowerShell 7 und einen Anmeldung als Anwendungsadministrator.</p>
-<pre>pwsh -File .\scripts\New-MonitorAppRegistration.ps1 `
+  <p><a class="btn ghost" href="{{ url_for('docs.setup_script') }}">Skript herunterladen</a></p>
+<pre>pwsh -File .\New-MonitorAppRegistration.ps1 `
   -TenantId &lt;tenant-guid&gt; `
   -TenantKey &lt;kundenschlüssel&gt; `
   -CreateCertificate</pre>
+  <div class="note">Der Aufruf geht vom Verzeichnis aus, in dem die heruntergeladene
+    Datei liegt. Im Projektarchiv liegt dieselbe Datei unter
+    <span class="mono">scripts/</span>.</div>
   <p>Die Ausgabe enthält Tenant-ID, Client-ID sowie die beiden PEM-Blöcke. Beides wird im
     Formular <a href="{{ url_for('customers.create') }}">Kunde anlegen</a> eingefügt.</p>
 </div>
