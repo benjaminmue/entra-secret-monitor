@@ -9,7 +9,7 @@ Implementierungen derselben Sache werden.
 | Kennzahl | Wert |
 |---|---|
 | Module | 21 |
-| Funktionen | 182 |
+| Funktionen | 183 |
 | Ohne Docstring | 0 |
 | Namensdubletten | 0 |
 | Strukturdubletten | 0 |
@@ -296,8 +296,9 @@ nicht eine Ausnahme vom Aufräumen.
 
 | Zeile | Funktion | Rückgabe | Beschreibung |
 |---|---|---|---|
-| 35 | `base_url()` | Wert | Return the externally reachable base URL of this instance. |
-| 43 | `index()` | Wert | Render the onboarding guide. |
+| 44 | `base_url()` | Wert | Return the externally reachable base URL of this instance. |
+| 52 | `index()` | Wert | Render the onboarding guide. |
+| 62 | `setup_script()` | Wert | Hand out the setup script that Variante A of the guide refers to. |
 
 ### `portal/views/helpers.py`
 

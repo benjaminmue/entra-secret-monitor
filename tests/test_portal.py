@@ -534,6 +534,31 @@ class PortalFlowTests(unittest.TestCase):
             admin.role = "admin"
             Session.commit()
 
+    def test_11_setup_script_is_downloadable(self):
+        """The guide links the setup script, so the route must hand it out."""
+        response = self.client.get("/anleitung/skript")
+        self.assertEqual(200, response.status_code)
+        self.assertIn("attachment", response.headers.get("Content-Disposition", ""))
+        self.assertIn("New-MonitorAppRegistration.ps1",
+                      response.headers.get("Content-Disposition", ""))
+        body = response.get_data()
+        response.close()      # send_file leaves the reader open otherwise
+        self.assertTrue(body.startswith(b"#Requires"),
+                        "unerwarteter Anfang: %r" % body[:40])
+        self.assertFalse(body.startswith(b"\xef\xbb\xbf"),
+                         "BOM im Download, PowerShell 5.1 stolpert darüber")
+
+    def test_12_setup_script_needs_a_session(self):
+        """An anonymous caller must be sent to the login, not handed the file."""
+        anonymous = self.app.test_client()
+        response = anonymous.get("/anleitung/skript")
+        self.assertEqual(302, response.status_code)
+        self.assertIn("/login", response.headers.get("Location", ""))
+
+    def test_13_guide_links_the_download(self):
+        """A working route is useless while the page does not point at it."""
+        body = self.client.get("/anleitung/").get_data(as_text=True)
+        self.assertIn("/anleitung/skript", body)
 
 @needs_portal
 class UserAdministrationTests(unittest.TestCase):
