@@ -9,7 +9,7 @@ Implementierungen derselben Sache werden.
 | Kennzahl | Wert |
 |---|---|
 | Module | 21 |
-| Funktionen | 183 |
+| Funktionen | 184 |
 | Ohne Docstring | 0 |
 | Namensdubletten | 0 |
 | Strukturdubletten | 0 |
@@ -86,12 +86,13 @@ nicht eine Ausnahme vom Aufräumen.
 | 481 | `fetch_credentials(cfg)` | Wert | Authenticate and return the raw credential list for one tenant. |
 | 492 | `build_result(creds, cfg)` | Wert | Turn raw credentials into the result structure used by every renderer. |
 | 506 | `scan_tenant(cfg)` | Wert | Run a full scan for one tenant and return channels plus summary. |
-| 521 | `xml_text(value)` | Wert | Escape a value for XML and drop characters XML cannot represent. |
-| 528 | `render_prtg(result, cfg, extra_channels=None)` | Wert | Render PRTG XML: three summary channels plus one channel per app. |
-| 544 | `channel(name, value, unit, limits=None)` | kein Rückgabewert | Append one <result> block, optionally with static limits. |
-| 586 | `render_prtg_error(message)` | Wert | Render a PRTG error response so the sensor turns red instead of staying silent. |
-| 592 | `render_text(result, cfg)` | Wert | Render a readable table for manual runs on the shell. |
-| 611 | `push_to_prtg(url, xml)` | kein Rückgabewert | Send the XML to a PRTG HTTP Push Data Advanced sensor. |
+| 521 | `_xml_allows(code)` | Wert | True when a code point may appear in an XML 1.0 document. |
+| 536 | `xml_text(value)` | Wert | Escape a value for XML and drop characters XML cannot represent. |
+| 542 | `render_prtg(result, cfg, extra_channels=None)` | Wert | Render PRTG XML: three summary channels plus one channel per app. |
+| 558 | `channel(name, value, unit, limits=None)` | kein Rückgabewert | Append one <result> block, optionally with static limits. |
+| 600 | `render_prtg_error(message)` | Wert | Render a PRTG error response so the sensor turns red instead of staying silent. |
+| 606 | `render_text(result, cfg)` | Wert | Render a readable table for manual runs on the shell. |
+| 625 | `push_to_prtg(url, xml)` | kein Rückgabewert | Send the XML to a PRTG HTTP Push Data Advanced sensor. |
 
 ### `app/server.py`
 

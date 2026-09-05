@@ -127,24 +127,37 @@ class SecurityUnitTests(unittest.TestCase):
         hashed.assert_not_called()
 
     def test_dummy_verify_is_within_the_same_order_as_a_real_check(self):
-        """Guards the structural test above with a generous timing bound."""
-        import statistics
+        """
+        Guards the structural test above with a timing bound.
+
+        Compares the fastest of several runs rather than the median: the
+        minimum is the closest estimate of the pure computation, and it is what
+        survives a busy machine. A median flagged this test once while an
+        unrelated build saturated the CPU, and a timing test that cries wolf
+        gets ignored, which costs more than it protects.
+
+        The bound stays at 1.5 on purpose. The bug it guards against added a
+        whole extra hash and measured a factor of two, so a wider bound would
+        let exactly that through.
+        """
         import time
 
         from portal import security
 
         stored = security.hash_password("richtiges-passwort")
 
-        def median(call):
-            samples = []
-            for _ in range(7):
+        def fastest(call):
+            best = None
+            for _ in range(9):
                 started = time.perf_counter()
                 call()
-                samples.append(time.perf_counter() - started)
-            return statistics.median(samples)
+                elapsed = time.perf_counter() - started
+                if best is None or elapsed < best:
+                    best = elapsed
+            return best
 
-        real = median(lambda: security.verify_password(stored, "falsch"))
-        dummy = median(lambda: security.dummy_verify("falsch"))
+        real = fastest(lambda: security.verify_password(stored, "falsch"))
+        dummy = fastest(lambda: security.dummy_verify("falsch"))
         self.assertLess(max(real, dummy) / min(real, dummy), 1.5,
                         "Antwortzeit verraet, ob der Benutzer existiert")
 

@@ -182,11 +182,27 @@ function Get-XmlText {
     param([string]$Value)
     if ($null -eq $Value) { return "" }
     $clean = New-Object System.Text.StringBuilder
-    foreach ($ch in $Value.ToCharArray()) {
+    # Erlaubt sind #x9 #xA #xD, [#x20-#xD7FF], [#xE000-#xFFFD] und ab #x10000.
+    # Nur auf Steuerzeichen zu pruefen reicht nicht: U+FFFE und U+FFFF sind
+    # druckbar und kaemen durch, kein Parser nimmt sie aber an. Gueltige
+    # Surrogatpaare bilden zusammen ein Zeichen ab #x10000 und bleiben erhalten,
+    # ein einzelnes Surrogat wird verworfen.
+    $i = 0
+    while ($i -lt $Value.Length) {
+        $ch = $Value[$i]
         $code = [int]$ch
-        if (($code -ge 32 -and $code -ne 127) -or $code -eq 9 -or $code -eq 10 -or $code -eq 13) {
+        if ([char]::IsHighSurrogate($ch) -and ($i + 1) -lt $Value.Length -and
+            [char]::IsLowSurrogate($Value[$i + 1])) {
+            [void]$clean.Append($ch).Append($Value[$i + 1])
+            $i += 2
+            continue
+        }
+        if ($code -eq 9 -or $code -eq 10 -or $code -eq 13 -or
+            ($code -ge 32 -and $code -ne 127 -and $code -le 0xD7FF) -or
+            ($code -ge 0xE000 -and $code -le 0xFFFD)) {
             [void]$clean.Append($ch)
         }
+        $i++
     }
     return $clean.ToString().Replace('&', '&amp;').Replace('<', '&lt;').Replace('>', '&gt;').Replace('"', '&quot;')
 }
@@ -519,12 +535,16 @@ function Get-AppChannels {
     #>
     param($Credentials)
 
+    # Invariante Kultur: .ToLower() folgt der Kultur des Dienstprozesses, und
+    # unter tr-TR wird aus INVENTORY das punktlose "ınventory". Ein -Filter
+    # inventory nimmt die Anwendung dann komplett aus der Ueberwachung, samt
+    # ihrem Anteil an den Zusammenfassungskanaelen.
     $excludes = @()
     foreach ($part in ($Exclude -split ',')) {
-        $trimmed = $part.Trim().ToLower()
+        $trimmed = $part.Trim().ToLowerInvariant()
         if ($trimmed) { $excludes += $trimmed }
     }
-    $needle = $Filter.ToLower()
+    $needle = $Filter.ToLowerInvariant()
 
     # Ordinal und ohne Wildcards vergleichen. -like liest [ und ] als
     # Zeichenklasse: "-Exclude 'Contoso [Test]'" wuerfe sonst unbeteiligte
@@ -534,7 +554,7 @@ function Get-AppChannels {
     $groups = [System.Collections.Generic.Dictionary[string, object]]::new(
         [System.StringComparer]::Ordinal)
     foreach ($cred in $Credentials) {
-        $lower = $cred.AppName.ToLower()
+        $lower = $cred.AppName.ToLowerInvariant()
         if ($needle -and -not $lower.Contains($needle)) { continue }
         $skip = $false
         foreach ($ex in $excludes) { if ($lower.Contains($ex)) { $skip = $true; break } }
@@ -597,18 +617,19 @@ function Set-UniqueChannelName {
         { param($c) if ($c.ObjectId) { $c.ObjectId.Substring(0, [math]::Min(8, $c.ObjectId.Length)) } else { "?" } }
     )
 
+    # Ordinal zaehlen und gruppieren. Hashtable und Group-Object vergleichen von
+    # sich aus ohne Ruecksicht auf Gross- und Kleinschreibung, Python dagegen
+    # exakt: "CRM" und "crm" gaelten hier als Kollision und bekaemen Zusaetze,
+    # die es im Container nicht gibt. Damit waeren die Kanalnamen verschieden
+    # und ein Sensor verloere beim Wechsel seine Historie.
     foreach ($suffix in $suffixe) {
-        $zaehler = @{}
-        foreach ($c in $Channels) {
-            if (-not $zaehler.ContainsKey($c.Name)) { $zaehler[$c.Name] = 0 }
-            $zaehler[$c.Name]++
-        }
-        if (-not ($zaehler.Values | Where-Object { $_ -gt 1 })) { return $Channels }
+        $kollisionen = Get-NameCollision -Channels $Channels
+        if ($kollisionen.Count -eq 0) { return $Channels }
 
-        foreach ($gruppe in ($Channels | Group-Object Name | Where-Object { $_.Count -gt 1 })) {
-            $werte = @($gruppe.Group | ForEach-Object { & $suffix $_ } | Sort-Object -Unique)
+        foreach ($gruppe in $kollisionen) {
+            $werte = @($gruppe | ForEach-Object { & $suffix $_ } | Sort-Object -Unique)
             if ($werte.Count -le 1) { continue }
-            foreach ($c in $gruppe.Group) {
+            foreach ($c in $gruppe) {
                 $c.Name = "{0} [{1}]" -f $c.Name, (& $suffix $c)
             }
         }
@@ -616,14 +637,35 @@ function Set-UniqueChannelName {
 
     # Die Zusaetze koennen ausgehen, etwa wenn Graph keine Objekt-ID lieferte.
     # Eindeutig muessen die Namen trotzdem sein.
-    foreach ($gruppe in ($Channels | Group-Object Name | Where-Object { $_.Count -gt 1 })) {
+    foreach ($gruppe in (Get-NameCollision -Channels $Channels)) {
         $i = 1
-        foreach ($c in $gruppe.Group) {
+        foreach ($c in $gruppe) {
             if ($i -gt 1) { $c.Name = "{0} [{1}]" -f $c.Name, $i }
             $i++
         }
     }
     return $Channels
+}
+
+
+function Get-NameCollision {
+    <#
+        .SYNOPSIS
+        Return the groups of channels that share a name, compared ordinally.
+    #>
+    param($Channels)
+
+    $nach = [System.Collections.Generic.Dictionary[string, object]]::new(
+        [System.StringComparer]::Ordinal)
+    foreach ($c in $Channels) {
+        if (-not $nach.ContainsKey($c.Name)) { $nach[$c.Name] = @() }
+        $nach[$c.Name] += $c
+    }
+    $treffer = @()
+    foreach ($schluessel in $nach.Keys) {
+        if (@($nach[$schluessel]).Count -gt 1) { $treffer += ,@($nach[$schluessel]) }
+    }
+    return ,@($treffer)
 }
 
 

@@ -518,10 +518,24 @@ def scan_tenant(cfg):
 _XML_SAFE_LOW = (9, 10, 13)          # Tab, Zeilenvorschub, Wagenrücklauf
 
 
+def _xml_allows(code):
+    """
+    True when a code point may appear in an XML 1.0 document.
+
+    The permitted set is #x9 | #xA | #xD | [#x20-#xD7FF] | [#xE000-#xFFFD] |
+    [#x10000-#x10FFFF]. Filtering only on control characters is not enough:
+    U+FFFE and U+FFFF are printable and pass such a check, yet no parser
+    accepts them, so PRTG would get a document it rejects.
+    """
+    return (code in _XML_SAFE_LOW
+            or 0x20 <= code <= 0xD7FF and code != 0x7F
+            or 0xE000 <= code <= 0xFFFD
+            or 0x10000 <= code <= 0x10FFFF)
+
+
 def xml_text(value):
     """Escape a value for XML and drop characters XML cannot represent."""
-    text = "".join(ch for ch in str(value)
-                   if (ord(ch) >= 32 and ord(ch) != 127) or ord(ch) in _XML_SAFE_LOW)
+    text = "".join(ch for ch in str(value) if _xml_allows(ord(ch)))
     return escape(text)
 
 

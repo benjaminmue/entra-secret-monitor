@@ -125,6 +125,33 @@ function Invoke-WithRetry {
     }
 }
 
+function ConvertTo-Pem {
+    <#
+    .SYNOPSIS
+        Wrap DER bytes as PEM, in 64 character lines.
+    .DESCRIPTION
+        Does what PemEncoding.Write does, without needing .NET 5. Written out
+        so the script also runs on PowerShell 7.0, which its #Requires allows.
+    .OUTPUTS
+        String, the PEM block including trailing newline.
+    #>
+    param(
+        [Parameter(Mandatory)][string]$Label,
+        [Parameter(Mandatory)][byte[]]$Bytes
+    )
+
+    $base64 = [Convert]::ToBase64String($Bytes)
+    $zeilen = New-Object System.Text.StringBuilder
+    [void]$zeilen.AppendLine("-----BEGIN $Label-----")
+    for ($i = 0; $i -lt $base64.Length; $i += 64) {
+        $laenge = [math]::Min(64, $base64.Length - $i)
+        [void]$zeilen.AppendLine($base64.Substring($i, $laenge))
+    }
+    [void]$zeilen.Append("-----END $Label-----")
+    return $zeilen.ToString()
+}
+
+
 function New-MonitorCertificate {
     <#
     .SYNOPSIS
@@ -175,10 +202,12 @@ function New-MonitorCertificate {
         $notAfter = [DateTimeOffset]::UtcNow.AddYears($Years)
         $cert = $request.CreateSelfSigned($notBefore, $notAfter)
 
-        $certPem = [System.Security.Cryptography.PemEncoding]::Write(
-            'CERTIFICATE', $cert.RawData) -join ''
-        $keyPem = [System.Security.Cryptography.PemEncoding]::Write(
-            'PRIVATE KEY', $rsa.ExportPkcs8PrivateKey()) -join ''
+        # PemEncoding gibt es erst ab .NET 5. PowerShell 7.0 laeuft auf .NET
+        # Core 3.1 und erfuellt damit das #Requires, wuerde hier aber abbrechen,
+        # nachdem App, Dienstprinzipal und Berechtigung bereits angelegt sind.
+        # Base64 mit Kopf und Fuss ist dasselbe Format und laeuft ueberall.
+        $certPem = ConvertTo-Pem -Label 'CERTIFICATE' -Bytes $cert.RawData
+        $keyPem = ConvertTo-Pem -Label 'PRIVATE KEY' -Bytes $rsa.ExportPkcs8PrivateKey()
 
         Set-Content -LiteralPath $certPath -Value $certPem -Encoding ascii -NoNewline
         Set-Content -LiteralPath $keyPath -Value $keyPem -Encoding ascii -NoNewline
