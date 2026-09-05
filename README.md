@@ -18,7 +18,7 @@ docker compose up -d
 | `http://host:8099/refresh?tenant=<key>` | drop the cache and rescan |
 | `http://host:8099/healthz` | liveness probe, never needs a token |
 
-## Two flavours
+## Three flavours
 
 **Classic service** (`app/`, `Dockerfile`) is what the rest of this README
 describes: stateless, configured through environment variables, no dependencies
@@ -37,6 +37,13 @@ docker compose -f docker-compose.portal.yml up -d
 
 Documentation: [docs/PORTAL.md](docs/PORTAL.md) (German). Both share the Graph logic
 in `app/graph.py` and can run side by side.
+
+**PRTG sensor** (`prtg/Get-EntraSecretExpiry.ps1`) is the third option and needs no
+host at all: one Windows PowerShell script on the PRTG instance itself, one sensor
+per tenant, no modules. It only needs outbound 443 to Microsoft, so a customer
+without a probe server is covered like every other one. Same channels, same limits,
+same XML as the container, so a sensor can move from one to the other and keeps its
+history. Documentation: [docs/PRTG-SENSOR.md](docs/PRTG-SENSOR.md) (German).
 
 ## Why
 
