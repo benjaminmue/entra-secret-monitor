@@ -85,7 +85,8 @@
 
 .PARAMETER MaxChannels
     Maximum number of app channels. PRTG allows 50 channels per sensor and
-    three of them are the summary, so the value is capped at 47. Default 40.
+    three of them are the summary, so the value is clamped to 1 through 47.
+    Default 45, the same as the container.
 
 .PARAMETER Proxy
     HTTP proxy for the token endpoint and Graph, for example http://proxy:8080.
@@ -129,7 +130,7 @@ param(
     [switch]$ShowExpired,
     [string]$Filter = "",
     [string]$Exclude = "",
-    [int]$MaxChannels = 40,
+    [int]$MaxChannels = 45,
     [string]$Proxy = "",
     [int]$TimeoutSec = 60,
     [switch]$ShowEnvironmentNames
@@ -202,8 +203,12 @@ function Write-PrtgError {
         code would replace the message with a generic one.
     #>
     param([string]$Message)
-    $text = Get-XmlText ([string]$Message)
-    if ($text.Length -gt 2000) { $text = $text.Substring(0, 2000) }
+    # Erst kuerzen, dann escapen. Umgekehrt schneidet der Schnitt womoeglich
+    # mitten durch eine Entity wie &amp; und PRTG meldet einen Parserfehler
+    # statt der Ursache. app/graph.py macht es in derselben Reihenfolge.
+    $roh = [string]$Message
+    if ($roh.Length -gt 2000) { $roh = $roh.Substring(0, 2000) }
+    $text = Get-XmlText $roh
     Write-Output '<?xml version="1.0" encoding="UTF-8" ?>'
     Write-Output '<prtg>'
     Write-Output '  <error>1</error>'
@@ -258,7 +263,10 @@ function Invoke-Http {
         # usually consumed the stream already; PowerShell 7 throws a different
         # exception type altogether. Both are covered here, the stream is only
         # the fallback.
-        $status = ""
+        # 0 statt leer: bei DNS- oder Verbindungsfehlern gibt es keine Antwort
+        # und damit keinen Status. Die Meldung lautet dann "HTTP 0 auf ...",
+        # so wie es die Fehlertabelle in docs/PRTG-SENSOR.md beschreibt.
+        $status = 0
         $detail = ""
         if ($_.ErrorDetails -and $_.ErrorDetails.Message) { $detail = $_.ErrorDetails.Message }
 
@@ -480,6 +488,7 @@ function Get-CredentialList {
                 $result += [pscustomobject]@{
                     AppName    = [string]$name
                     AppId      = [string]$obj.appId
+                    ObjectId   = [string]$obj.id
                     ObjectType = $entry.ObjectType
                     CredType   = $kind.Type
                     CredName   = [string]$credName
@@ -500,12 +509,13 @@ function Get-CredentialList {
 function Get-AppChannels {
     <#
         .SYNOPSIS
-        Group credentials per app and type and keep the longest remaining runtime.
+        Group credentials per Graph object and type, keeping the longest runtime.
 
         .DESCRIPTION
         A freshly rolled secret makes the old one irrelevant, so the maximum per
-        group is the value that actually describes the risk for that app.
-        Filter keeps matching apps, Exclude drops them and wins over Filter.
+        group is the value that actually describes the risk for that object.
+        Filter keeps matching apps, Exclude drops them and wins over Filter;
+        both compare as plain substrings, never as wildcard patterns.
     #>
     param($Credentials)
 
@@ -516,15 +526,26 @@ function Get-AppChannels {
     }
     $needle = $Filter.ToLower()
 
-    $groups = @{}
+    # Ordinal und ohne Wildcards vergleichen. -like liest [ und ] als
+    # Zeichenklasse: "-Exclude 'Contoso [Test]'" wuerfe sonst unbeteiligte
+    # Anwendungen aus der Ueberwachung, und eine unpaarige Klammer beendet den
+    # Sensor mit einer WildcardPatternException statt mit einer Aussage.
+    # Der Container vergleicht ebenfalls als Teilzeichenkette.
+    $groups = [System.Collections.Generic.Dictionary[string, object]]::new(
+        [System.StringComparer]::Ordinal)
     foreach ($cred in $Credentials) {
         $lower = $cred.AppName.ToLower()
-        if ($needle -and $lower -notlike "*$needle*") { continue }
+        if ($needle -and -not $lower.Contains($needle)) { continue }
         $skip = $false
-        foreach ($ex in $excludes) { if ($lower -like "*$ex*") { $skip = $true; break } }
+        foreach ($ex in $excludes) { if ($lower.Contains($ex)) { $skip = $true; break } }
         if ($skip) { continue }
 
-        $key = "{0}|{1}" -f $cred.AppName, $cred.CredType
+        # Nach Objektidentitaet gruppieren, nicht nach Anzeigename. Zwei
+        # Registrierungen koennen denselben Namen tragen, eine Anwendung und ihr
+        # Dienstprinzipal tun es immer. Ueber den Namen gruppiert verdeckt die
+        # laengste Restlaufzeit der Gruppe ein ablaufendes Credential eines
+        # anderen Objekts, also genau den Alarm, fuer den es den Sensor gibt.
+        $key = "{0}|{1}|{2}" -f $cred.ObjectType, $cred.ObjectId, $cred.CredType
         if (-not $groups.ContainsKey($key)) { $groups[$key] = @() }
         $groups[$key] += $cred
     }
@@ -539,14 +560,70 @@ function Get-AppChannels {
         # single channel PowerShell resolves $channels.Count to the property of
         # that object instead of the length of the collection.
         $channels += [pscustomobject]@{
-            Name      = "{0} ({1})" -f $best.AppName, $label
-            Days      = $best.DaysLeft
-            Expires   = $best.EndDate.ToString("yyyy-MM-dd")
-            CredName  = $best.CredName
-            CredCount = $items.Count
+            Name       = "{0} ({1})" -f $best.AppName, $label
+            Days       = $best.DaysLeft
+            Expires    = $best.EndDate.ToString("yyyy-MM-dd")
+            CredName   = $best.CredName
+            CredCount  = $items.Count
+            AppId      = $best.AppId
+            ObjectId   = $best.ObjectId
+            ObjectType = $best.ObjectType
         }
     }
-    return @($channels | Sort-Object Days)
+    $channels = @(Set-UniqueChannelName -Channels $channels)
+    # Das Komma erzwingt eine Liste: ohne es liefert die Funktion bei null
+    # Kanaelen $null, und @($null) hat in PowerShell die Laenge eins.
+    return ,@($channels | Sort-Object Days)
+}
+
+
+function Set-UniqueChannelName {
+    <#
+        .SYNOPSIS
+        Give every channel a unique name, in place.
+
+        .DESCRIPTION
+        PRTG ordnet Werte ueber den Kanalnamen zu, ein doppelter Name macht
+        einen Sensor unbrauchbar. Nur kollidierende Namen bekommen einen Zusatz,
+        und nur den ersten, der die Gruppe wirklich trennt. Gleiche Reihenfolge
+        wie _assign_channel_names in app/graph.py, damit ein Sensor zwischen
+        Container und Skript wechseln kann.
+    #>
+    param($Channels)
+
+    $suffixe = @(
+        { param($c) if ($c.ObjectType -eq "application") { "App" } else { "SP" } },
+        { param($c) if ($c.AppId)    { $c.AppId.Substring(0,    [math]::Min(8, $c.AppId.Length)) }    else { "?" } },
+        { param($c) if ($c.ObjectId) { $c.ObjectId.Substring(0, [math]::Min(8, $c.ObjectId.Length)) } else { "?" } }
+    )
+
+    foreach ($suffix in $suffixe) {
+        $zaehler = @{}
+        foreach ($c in $Channels) {
+            if (-not $zaehler.ContainsKey($c.Name)) { $zaehler[$c.Name] = 0 }
+            $zaehler[$c.Name]++
+        }
+        if (-not ($zaehler.Values | Where-Object { $_ -gt 1 })) { return $Channels }
+
+        foreach ($gruppe in ($Channels | Group-Object Name | Where-Object { $_.Count -gt 1 })) {
+            $werte = @($gruppe.Group | ForEach-Object { & $suffix $_ } | Sort-Object -Unique)
+            if ($werte.Count -le 1) { continue }
+            foreach ($c in $gruppe.Group) {
+                $c.Name = "{0} [{1}]" -f $c.Name, (& $suffix $c)
+            }
+        }
+    }
+
+    # Die Zusaetze koennen ausgehen, etwa wenn Graph keine Objekt-ID lieferte.
+    # Eindeutig muessen die Namen trotzdem sein.
+    foreach ($gruppe in ($Channels | Group-Object Name | Where-Object { $_.Count -gt 1 })) {
+        $i = 1
+        foreach ($c in $gruppe.Group) {
+            if ($i -gt 1) { $c.Name = "{0} [{1}]" -f $c.Name, $i }
+            $i++
+        }
+    }
+    return $Channels
 }
 
 
@@ -568,7 +645,10 @@ function Write-PrtgResult {
     # A pipeline that produced a single channel arrives as a bare object, so the
     # collection is rebuilt before anything asks for its length.
     $list = @($Channels)
-    $limit = [math]::Min($MaxChannels, $ChannelHardLimit)
+    # Nach beiden Seiten begrenzen: 0 ergaebe einen Sensor ohne App-Kanaele,
+    # ein negativer Wert laesst Select-Object -First eine Ausnahme werfen, die
+    # als roter Sensor mit .NET-Text endet. Der Container klemmt genauso.
+    $limit = [math]::Max(1, [math]::Min($MaxChannels, $ChannelHardLimit))
     $shown = @($list | Select-Object -First $limit)
     $truncated = $list.Count - $shown.Count
 

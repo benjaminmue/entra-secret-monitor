@@ -197,7 +197,7 @@ Fallback-Reihenfolge für die drei Zugangsdaten: Parameter, dann
 | `-ShowExpired` | aus | bereits abgelaufene Credentials als Kanal behalten |
 | `-Filter` | leer | nur Apps, deren Name diesen Text enthält |
 | `-Exclude` | leer | Komma-Liste, schlägt `-Filter` |
-| `-MaxChannels` | 40 | App-Kanäle, hart begrenzt auf 47 |
+| `-MaxChannels` | 45 | App-Kanäle, geklemmt auf 1 bis 47 |
 | `-Proxy` | leer | z.B. `http://proxy:8080`, mit Default-Credentials |
 | `-TimeoutSec` | 60 | pro HTTP-Aufruf |
 | `-ShowEnvironmentNames` | aus | Diagnose: meldet die Namen der `prtg_*` Variablen, nie deren Werte |
@@ -208,10 +208,19 @@ Schalter wieder entfernen.
 
 ## Kanäle
 
-Drei feste Kanäle plus einer pro App und Credential-Typ. Namen, Einheiten und
-Grenzwerte sind identisch mit der XML-Ausgabe des Containers, ein bestehender
+Drei feste Kanäle plus einer pro Graph-Objekt und Credential-Typ. Namen, Einheiten
+und Grenzwerte sind identisch mit der XML-Ausgabe des Containers, ein bestehender
 Sensor kann also von der einen auf die andere Quelle wechseln und behält seine
 Historie.
+
+Gruppiert wird über die Objektidentität, nicht über den Anzeigenamen: zwei
+Registrierungen können denselben Namen tragen, eine Anwendung und ihr
+Dienstprinzipal tun es immer. Über den Namen gruppiert würde die längste
+Restlaufzeit der Gruppe ein ablaufendes Credential eines anderen Objekts
+verdecken. Wo Namen dadurch kollidieren, hängt der Sensor den kleinsten Zusatz
+an, der die Gruppe trennt: `[App]` beziehungsweise `[SP]`, sonst die ersten
+Stellen der appId. Ohne Kollision bleibt der Name unverändert, genau wie im
+Container.
 
 | Kanal | Einheit | Grenzwerte |
 |---|---|---|
