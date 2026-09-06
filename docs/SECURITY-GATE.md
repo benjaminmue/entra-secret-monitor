@@ -126,6 +126,57 @@ API-Schlüssel bewusst ein Schlüssel zur Instanz, nicht zu einem Kunden.
   Datei allein gibt keine Zugangsdaten her, weil der Schlüssel in der Umgebung
   steht und nicht in der Datenbank, aber die PRTG-Token stehen im Klartext.
 
+## Wie eine Änderung auf main kommt
+
+`main` ist seit dem 06.09.2026 durch ein Ruleset geschützt. Ein direkter Push
+wird vom Server abgewiesen:
+
+```
+- Changes must be made through a pull request.
+- 4 of 4 required status checks are expected.
+```
+
+Der Weg ist deshalb immer derselbe:
+
+```bash
+git switch -c thema
+git push -u origin thema
+gh pr create --fill
+gh pr merge --auto --squash --delete-branch
+```
+
+`--auto` statt einer Warteschleife auf `gh pr checks`: der Merge passiert von
+selbst, sobald die vier Checks grün sind. Eine Schleife über `gh pr checks`
+hängt, sobald ein Job übersprungen wird.
+
+Erforderlich sind `Testsuite`, `Geheimnisse`, `Abhaengigkeiten` und `Abbild`,
+dazu keine Genehmigung. Bei einem einzigen Betreuer wäre eine
+Genehmigungspflicht eine Selbstblockade, denn den eigenen Pull Request kann
+niemand freigeben; die Bedingung entsteht über die Checks, nicht über ein
+Review. Force-Push und Löschen von `main` sind gesperrt.
+
+**Niemand hat einen Bypass, auch der Betreuer nicht.** Eine Ausnahme für sich
+selbst macht das Gate zur Dekoration.
+
+**Wenn ein Pull Request hängen bleibt**, weil ein Check gar nicht erst startet
+(Tippfehler im Workflow, umbenannter Job, Störung bei GitHub), steht er auf
+*Expected, waiting for status* und lässt sich nicht mergen. Ausweg: das Ruleset
+kurz stilllegen, den Fix einbringen, wieder scharf schalten.
+
+```bash
+gh api --method PUT repos/benjaminmue/entra-secret-monitor/rulesets/22382604 \
+  -f enforcement=disabled
+# Fix einbringen, dann
+gh api --method PUT repos/benjaminmue/entra-secret-monitor/rulesets/22382604 \
+  -f enforcement=active
+```
+
+**Namen der Checks müssen genau stimmen.** Im Ruleset stehen die kurzen Namen,
+weil `security.yml` bei einem Pull Request direkt läuft. Aus dem
+Veröffentlichungslauf heraus heissen dieselben Jobs `gate / Testsuite` und so
+weiter; wer einen Job umbenennt, muss das Ruleset mitziehen, sonst wartet jeder
+künftige Pull Request auf einen Check, den es nicht mehr gibt.
+
 ## Ein Durchlauf ist an einen Stand gebunden
 
 Das Ergebnis gilt für einen Commit, nicht für einen Zeitraum. Ändert sich nach
