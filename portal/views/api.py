@@ -25,12 +25,12 @@ from flask import Blueprint, g, jsonify, request, url_for
 from flask_login import current_user
 from sqlalchemy import select
 
-from portal import audit, crypto, openapi, ratelimit, scheduler, security
+from portal import audit, crypto, diagnose, openapi, ratelimit, scheduler, security
 from portal.db import Session
 from portal.forms import GUID, KEY_PATTERN
 from portal.models import (API_SCOPE_WRITE, AUTH_CERT, AUTH_SECRET, ApiKey,
                            CredentialSnapshot, Customer, new_token, utcnow)
-from portal.scanner import inspect_certificate
+from portal.scanner import data_age_hours, inspect_certificate
 from portal.views.helpers import base_url, config
 
 bp = Blueprint("api", __name__, url_prefix="/api/v1")
@@ -53,6 +53,8 @@ ENDPUNKTE = [
      "zweck": "Alle Kunden mit Zusammenfassung und Sensor-URLs"},
     {"methode": "POST", "pfad": "/api/v1/customers", "bereich": "write",
      "zweck": "Kunde anlegen mit Tenant-ID, Client-ID und Secret oder Zertifikat"},
+    {"methode": "GET", "pfad": "/api/v1/problems", "bereich": "read",
+     "zweck": "Nur die Kunden, bei denen etwas nicht stimmt, mit lesbarem Befund"},
     {"methode": "GET", "pfad": "/api/v1/customers/<key>", "bereich": "read",
      "zweck": "Ein Kunde samt seiner Zugangsdaten-Laufzeiten"},
     {"methode": "PATCH", "pfad": "/api/v1/customers/<key>", "bereich": "write",
@@ -295,6 +297,21 @@ def sensor_urls(kunde):
     }
 
 
+def zustand_und_befunde(kunde, credentials):
+    """
+    The overall state plus the readable findings for one customer.
+
+    Der Zustand kommt aus derselben Funktion wie in der Oberflaeche. Ein
+    anbindendes System soll ihn nicht nachbauen muessen, und vor allem soll es
+    die Veraltungsregel nicht uebersehen: frische Zahlen sind Teil der Aussage.
+    """
+    from portal.views.dashboard import customer_state
+
+    stale_hours = config().stale_hours
+    return (customer_state(kunde, stale_hours),
+            diagnose.befunde(kunde, credentials, stale_hours))
+
+
 def kunde_als_json(kunde, mit_credentials=False):
     """
     Render one customer.
@@ -302,6 +319,16 @@ def kunde_als_json(kunde, mit_credentials=False):
     Enthaelt bewusst kein Client Secret und keinen privaten Schluessel. Was ein
     Aufrufer erfaehrt, ist ob etwas hinterlegt ist und wann es ablaeuft.
     """
+    # Die Zugangsdaten werden hier einmal geladen und weitergereicht, weil
+    # sowohl die Befunde als auch die Ausgabe sie brauchen. Sonst entstuende je
+    # Kunde eine zweite Abfrage, und die Liste faehrt ueber alle Kunden.
+    gespeicherte = Session.execute(
+        select(CredentialSnapshot)
+        .where(CredentialSnapshot.customer_id == kunde.id)
+        .order_by(CredentialSnapshot.days_left.asc())).scalars().all()
+    zustand, probleme = zustand_und_befunde(kunde, gespeicherte)
+    alter = data_age_hours(kunde)
+
     daten = {
         "key": kunde.key,
         "display_name": kunde.display_name,
@@ -315,10 +342,13 @@ def kunde_als_json(kunde, mit_credentials=False):
         } if kunde.auth_type == AUTH_CERT else None,
         "is_active": bool(kunde.is_active),
         "thresholds": {"warn_days": kunde.warn_days, "error_days": kunde.error_days},
+        "state": zustand,
+        "problems": probleme,
         "scan": {
             "last_check_at": zeitstempel(kunde.last_check_at),
             "status": kunde.last_status,
             "error": kunde.last_error or None,
+            "age_hours": alter if alter >= 0 else None,
             "slot_minute": kunde.slot_minute,
         },
         "summary": {
@@ -330,12 +360,7 @@ def kunde_als_json(kunde, mit_credentials=False):
         "urls": sensor_urls(kunde),
     }
     if mit_credentials:
-        daten["credentials"] = [credential_als_json(c) for c in
-                                Session.execute(
-                                    select(CredentialSnapshot)
-                                    .where(CredentialSnapshot.customer_id == kunde.id)
-                                    .order_by(CredentialSnapshot.days_left.asc())
-                                ).scalars().all()]
+        daten["credentials"] = [credential_als_json(c) for c in gespeicherte]
     return daten
 
 
@@ -610,6 +635,49 @@ def kunden_liste():
         select(Customer).order_by(Customer.display_name.asc())).scalars().all()
     return jsonify({"count": len(kunden),
                     "customers": [kunde_als_json(k) for k in kunden]})
+
+
+@bp.route("/problems", methods=["GET"])
+@benoetigt_schluessel()
+def probleme():
+    """
+    Only the customers that need attention, with a readable finding each.
+
+    Der Weg fuer ein uebergeordnetes System, das nicht alle Kunden durchgehen
+    und selbst bewerten will. Die Reihenfolge ist die der Dringlichkeit, damit
+    der erste Eintrag der ist, den jemand zuerst ansehen sollte.
+
+    ?severity=error liefert nur das, was schon weh tut, ohne die Warnungen.
+    """
+    gewuenscht = (request.args.get("severity") or "").strip().lower()
+    if gewuenscht and gewuenscht not in ("error", "warn", "info"):
+        return fehler(422, "validation_failed", "Eingaben unvollständig.",
+                      {"severity": "Erlaubt sind 'error', 'warn' und 'info'"})
+
+    kunden = Session.execute(
+        select(Customer).order_by(Customer.display_name.asc())).scalars().all()
+    rang = {"error": 0, "warn": 1, "info": 2, "unknown": 1}
+    betroffen = []
+    for kunde in kunden:
+        daten = kunde_als_json(kunde)
+        if not daten["problems"]:
+            continue
+        if gewuenscht and not any(b["severity"] == gewuenscht for b in daten["problems"]):
+            continue
+        betroffen.append({
+            "key": daten["key"],
+            "display_name": daten["display_name"],
+            "state": daten["state"],
+            "min_days": daten["summary"]["min_days"],
+            "problems": daten["problems"],
+            "urls": daten["urls"],
+        })
+
+    betroffen.sort(key=lambda e: (rang.get(e["state"], 3),
+                                  e["min_days"] if e["min_days"] is not None else 9999))
+    return jsonify({"count": len(betroffen),
+                    "checked_customers": len(kunden),
+                    "customers": betroffen})
 
 
 @bp.route("/customers", methods=["POST"])

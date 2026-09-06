@@ -1365,3 +1365,390 @@ class RateLimitTests(unittest.TestCase):
                 os.unlink(dbpfad)
             except OSError:
                 pass
+
+
+@needs_portal
+class DiagnoseTests(unittest.TestCase):
+    """
+    Die lesbaren Befunde und der Endpunkt, der nur die Auffälligen liefert.
+
+    Anlass war, dass die Schnittstelle bei einem Fehler nur den Rohtext von
+    Microsoft herausgab. `AADSTS7000215` sagt einem anbindenden System nichts
+    und einem Techniker erst nach dem Nachschlagen.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        from tests.test_portal import build_app
+
+        cls.app, cls.db_path = build_app()
+        cls.client = cls.app.test_client()
+        cls.context = cls.app.app_context()
+        cls.context.push()
+
+        from portal import security
+        from portal.db import Session
+        from portal.models import API_SCOPE_WRITE, ApiKey, new_api_key
+
+        roh, praefix = new_api_key()
+        Session.add(ApiKey(name="diag", prefix=praefix, scope=API_SCOPE_WRITE,
+                           key_hash=security.hash_password(roh), created_by="test"))
+        Session.commit()
+        cls.kopf = {"Authorization": "Bearer " + roh}
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.context.pop()
+        try:
+            os.unlink(cls.db_path)
+        except OSError:
+            pass
+
+    def setUp(self):
+        from portal import ratelimit
+        from portal.db import Session
+        from portal.models import Customer
+
+        for kunde in Session.query(Customer).all():
+            Session.delete(kunde)
+        Session.commit()
+        ratelimit.zuruecksetzen()
+
+    # ------------------------------------------------------------------
+    # Hilfen
+    # ------------------------------------------------------------------
+
+    def _kunde(self, key="musterag", **felder):
+        """Create a customer through the API and return the stored model."""
+        self.client.post("/api/v1/customers", headers=self.kopf, json=anlage(key=key))
+        from portal.db import Session
+        from portal.models import Customer
+
+        kunde = Session.query(Customer).filter_by(key=key).one()
+        for name, wert in felder.items():
+            setattr(kunde, name, wert)
+        Session.commit()
+        return kunde
+
+    def _credential(self, kunde, tage, app_name="SVC-Backup", cred_name="prod"):
+        """
+        Attach one stored credential and refresh the customer summary.
+
+        Die Zusammenfassung am Kunden gehoert dazu, weil im Betrieb run_check
+        beides in einem Zug schreibt. Ohne sie stuende min_days auf None, und
+        der Zustand waere "unknown" statt dessen, was der Test meint.
+        """
+        from datetime import timedelta
+
+        from portal.db import Session
+        from portal.models import CredentialSnapshot, utcnow
+
+        Session.add(CredentialSnapshot(
+            customer_id=kunde.id, app_name=app_name, app_id="a", object_type="application",
+            cred_type="secret", cred_name=cred_name, key_id="k",
+            end_date=utcnow() + timedelta(days=tage, hours=6), days_left=tage))
+        Session.flush()
+
+        alle = Session.query(CredentialSnapshot).filter_by(customer_id=kunde.id).all()
+        kunde.count_total = len(alle)
+        kunde.min_days = min(c.days_left for c in alle)
+        kunde.count_expired = sum(1 for c in alle if c.days_left < 0)
+        kunde.count_critical = sum(1 for c in alle
+                                   if 0 <= c.days_left < kunde.error_days)
+        Session.commit()
+
+    def _befunde(self, key="musterag"):
+        """The findings of one customer, as the API renders them."""
+        antwort = self.client.get("/api/v1/customers/" + key, headers=self.kopf)
+        self.assertEqual(200, antwort.status_code)
+        return antwort.get_json()
+
+    # ------------------------------------------------------------------
+    # Übersetzung der Microsoft-Fehler
+    # ------------------------------------------------------------------
+
+    def test_a_known_entra_code_becomes_a_sentence_and_a_next_step(self):
+        """
+        Der eigentliche Zweck: aus AADSTS7000215 wird ein Satz.
+
+        Der Rohtext bleibt erhalten, weil er bei einer Rückfrage an Microsoft
+        gebraucht wird.
+        """
+        from portal.models import utcnow
+
+        self._kunde(last_status="error", last_check_at=utcnow(),
+                    last_error="GraphError: Token-Endpoint HTTP 401: {\"error\":"
+                               "\"invalid_client\",\"error_description\":\"AADSTS7000215: "
+                               "Invalid client secret provided.\"}")
+        daten = self._befunde()
+        befund = next(b for b in daten["problems"] if b["code"] == "scan_failed")
+        self.assertEqual("AADSTS7000215", befund["entra_code"])
+        self.assertIn("Client Secret", befund["message"])
+        self.assertIn("neues Secret", befund["action"])
+        self.assertIn("AADSTS7000215", befund["detail"])
+
+    def test_every_known_entra_code_is_translated(self):
+        """Jede Kennung in der Tabelle muss auch greifen."""
+        from portal.diagnose import AADSTS
+        from portal.models import utcnow
+
+        for kennung in AADSTS:
+            with self.subTest(kennung=kennung):
+                self._kunde(key="k" + kennung.lower(), last_status="error",
+                            last_check_at=utcnow(),
+                            last_error="Token-Endpoint HTTP 401: %s: irgendwas" % kennung)
+                daten = self._befunde("k" + kennung.lower())
+                befund = next(b for b in daten["problems"] if b["code"] == "scan_failed")
+                self.assertEqual(kennung, befund["entra_code"])
+                self.assertTrue(befund["action"])
+
+    def test_an_unknown_error_still_yields_a_finding(self):
+        """
+        Ein Fehler ohne Kennung darf nicht stillschweigend verschwinden.
+
+        Dann eben ohne Übersetzung, aber mit dem Rohtext im Feld detail.
+        """
+        from portal.models import utcnow
+
+        self._kunde(last_status="error", last_check_at=utcnow(),
+                    last_error="ValueError: irgendetwas ganz Neues")
+        befund = next(b for b in self._befunde()["problems"] if b["code"] == "scan_failed")
+        self.assertIn("fehlgeschlagen", befund["message"])
+        self.assertIn("ganz Neues", befund["detail"])
+
+    def test_a_network_failure_names_the_ports(self):
+        """Der häufigste Fall beim ersten Aufsetzen: die Firewall."""
+        from portal.models import utcnow
+
+        self._kunde(last_status="error", last_check_at=utcnow(),
+                    last_error="GraphError: Token-Endpoint nicht erreichbar: timed out")
+        befund = next(b for b in self._befunde()["problems"] if b["code"] == "scan_failed")
+        self.assertIn("443", befund["action"])
+
+    def test_a_wrong_encryption_key_is_named_as_such(self):
+        """
+        Sonst sucht jemand den Fehler beim Kunden statt in der Umgebung.
+
+        Ein gewechselter PORTAL_ENCRYPTION_KEY macht jedes gespeicherte
+        Zugangsdatum unlesbar, und die Meldung sagt das auch.
+        """
+        from portal.models import utcnow
+
+        self._kunde(last_status="error", last_check_at=utcnow(),
+                    last_error="CryptoError: InvalidTag")
+        befund = next(b for b in self._befunde()["problems"] if b["code"] == "scan_failed")
+        self.assertIn("PORTAL_ENCRYPTION_KEY", befund["action"])
+
+    # ------------------------------------------------------------------
+    # Befunde aus den Zahlen
+    # ------------------------------------------------------------------
+
+    def test_a_single_expired_credential_is_named_in_the_singular(self):
+        """
+        "1 Zugangsdaten sind abgelaufen" wäre falsches Deutsch.
+
+        Bei einem einzelnen Eintrag steht der Name im Satz, bei mehreren die
+        Anzahl mit der Aufzählung dahinter.
+        """
+        from portal.models import utcnow
+
+        kunde = self._kunde(last_status="ok", last_check_at=utcnow())
+        self._credential(kunde, -12, "SVC-Backup", "prod")
+        befund = next(b for b in self._befunde()["problems"]
+                      if b["code"] == "credential_expired")
+        self.assertEqual("SVC-Backup (prod) ist bereits abgelaufen.", befund["message"])
+        self.assertEqual(1, befund["count"])
+
+    def test_several_expired_credentials_are_counted_and_listed(self):
+        """Bei mehreren zählt der Satz und nennt sie danach."""
+        from portal.models import utcnow
+
+        kunde = self._kunde(last_status="ok", last_check_at=utcnow())
+        self._credential(kunde, -12, "SVC-Backup", "prod")
+        self._credential(kunde, -3, "APP-Lohn", "cred-2")
+        befund = next(b for b in self._befunde()["problems"]
+                      if b["code"] == "credential_expired")
+        self.assertIn("2 Zugangsdaten sind bereits abgelaufen", befund["message"])
+        self.assertEqual(["APP-Lohn (cred-2)", "SVC-Backup (prod)"], befund["applications"])
+
+    def test_the_thresholds_of_the_customer_decide_the_severity(self):
+        """Kritisch und Warnung richten sich nach den Werten des Kunden, nicht nach festen."""
+        from portal.models import utcnow
+
+        kunde = self._kunde(last_status="ok", last_check_at=utcnow(),
+                            warn_days=30, error_days=14)
+        self._credential(kunde, 5, "APP-Kritisch", "a")
+        self._credential(kunde, 20, "APP-Warnung", "b")
+        self._credential(kunde, 200, "APP-Ruhig", "c")
+        codes = {b["code"]: b for b in self._befunde()["problems"]}
+        self.assertIn("APP-Kritisch", codes["credential_critical"]["message"])
+        self.assertIn("APP-Warnung", codes["credential_warning"]["message"])
+        self.assertEqual("warn", codes["credential_warning"]["severity"])
+        self.assertNotIn("APP-Ruhig", str(codes))
+
+    def test_stale_data_is_a_finding_of_its_own(self):
+        """
+        Alte Zahlen sind kein grüner Zustand.
+
+        Der Sensor bekäme sonst weiterhin die letzten Werte, und niemand merkt,
+        dass der Scheduler steht.
+        """
+        from datetime import timedelta
+
+        from portal.models import utcnow
+
+        self._kunde(last_status="ok", last_check_at=utcnow() - timedelta(hours=100))
+        befund = next(b for b in self._befunde()["problems"] if b["code"] == "data_stale")
+        self.assertEqual("error", befund["severity"])
+        self.assertGreaterEqual(befund["age_hours"], 99)
+
+    def test_a_customer_never_checked_says_so(self):
+        """Kein Fehler, aber auch keine Aussage."""
+        self._kunde()
+        codes = [b["code"] for b in self._befunde()["problems"]]
+        self.assertIn("never_checked", codes)
+
+    def test_an_inactive_customer_reports_only_that(self):
+        """
+        Bei abgeschalteter Überwachung sind die alten Zahlen bedeutungslos.
+
+        Sonst meldete ein pausierter Kunde jahrelang abgelaufene Secrets.
+        """
+        from datetime import timedelta
+
+        from portal.models import utcnow
+
+        kunde = self._kunde(is_active=False, last_status="ok",
+                            last_check_at=utcnow() - timedelta(hours=500))
+        self._credential(kunde, -300)
+        befunde = self._befunde()["problems"]
+        self.assertEqual(["inactive"], [b["code"] for b in befunde])
+        self.assertEqual("inactive", self._befunde()["state"])
+
+    def test_an_expiring_own_certificate_is_a_finding(self):
+        """
+        Läuft das Zertifikat des Portals ab, endet die Überwachung leise.
+
+        Der Kunde wird dabei nicht rot, weil seine eigenen Zugangsdaten in
+        Ordnung sind. Deshalb ein eigener Befund.
+        """
+        from datetime import timedelta
+
+        from portal.models import utcnow
+
+        kunde = self._kunde(last_status="ok", last_check_at=utcnow())
+        kunde.cert_not_after = utcnow() + timedelta(days=10, hours=6)
+        from portal.db import Session
+        Session.commit()
+        befund = next(b for b in self._befunde()["problems"]
+                      if b["code"] == "own_certificate_expiring")
+        self.assertEqual(10, befund["days_left"])
+
+    def test_a_customer_without_a_credential_cannot_be_checked(self):
+        """Ohne Zugangsdatum läuft kein Scan, das gehört gesagt."""
+        from portal.db import Session
+
+        kunde = self._kunde()
+        kunde.client_secret_enc = ""
+        Session.commit()
+        codes = [b["code"] for b in self._befunde()["problems"]]
+        self.assertIn("no_credential", codes)
+
+    def test_a_healthy_customer_has_no_findings(self):
+        """Der Normalfall muss leer sein, sonst ist die Liste wertlos."""
+        from portal.models import utcnow
+
+        kunde = self._kunde(last_status="ok", last_check_at=utcnow())
+        self._credential(kunde, 200)
+        daten = self._befunde()
+        self.assertEqual([], daten["problems"])
+        self.assertEqual("ok", daten["state"])
+
+    def test_findings_are_ordered_by_severity(self):
+        """Der erste Eintrag muss der sein, den jemand zuerst ansehen sollte."""
+        from portal.models import utcnow
+
+        kunde = self._kunde(last_status="ok", last_check_at=utcnow())
+        self._credential(kunde, 20, "APP-Warnung", "a")
+        self._credential(kunde, -5, "APP-Abgelaufen", "b")
+        schweren = [b["severity"] for b in self._befunde()["problems"]]
+        self.assertEqual(sorted(schweren, key=lambda s: {"error": 0, "warn": 1}[s]), schweren)
+
+    # ------------------------------------------------------------------
+    # Der Endpunkt
+    # ------------------------------------------------------------------
+
+    def test_the_problem_list_holds_only_customers_that_need_attention(self):
+        """Der Zweck: nicht alle durchgehen und selbst bewerten müssen."""
+        from portal.models import utcnow
+
+        gesund = self._kunde("gesund", last_status="ok", last_check_at=utcnow())
+        self._credential(gesund, 300)
+        krank = self._kunde("krank", last_status="ok", last_check_at=utcnow())
+        self._credential(krank, -5)
+
+        daten = self.client.get("/api/v1/problems", headers=self.kopf).get_json()
+        self.assertEqual(1, daten["count"])
+        self.assertEqual(2, daten["checked_customers"])
+        self.assertEqual("krank", daten["customers"][0]["key"])
+        self.assertIn("urls", daten["customers"][0])
+
+    def test_the_problem_list_puts_the_worst_first(self):
+        """Sortiert nach Zustand, dann nach kürzester Restlaufzeit."""
+        from portal.models import utcnow
+
+        for key, tage in (("mild", 20), ("schlimm", -30), ("mittel", 3)):
+            kunde = self._kunde(key, last_status="ok", last_check_at=utcnow())
+            self._credential(kunde, tage)
+        daten = self.client.get("/api/v1/problems", headers=self.kopf).get_json()
+        self.assertEqual(["schlimm", "mittel", "mild"],
+                         [k["key"] for k in daten["customers"]])
+
+    def test_the_problem_list_can_be_narrowed_to_errors(self):
+        """Wer nur wissen will, was schon weh tut, filtert auf error."""
+        from portal.models import utcnow
+
+        warnend = self._kunde("warnend", last_status="ok", last_check_at=utcnow())
+        self._credential(warnend, 20)
+        schlimm = self._kunde("schlimm", last_status="ok", last_check_at=utcnow())
+        self._credential(schlimm, -5)
+
+        daten = self.client.get("/api/v1/problems?severity=error",
+                                headers=self.kopf).get_json()
+        self.assertEqual(["schlimm"], [k["key"] for k in daten["customers"]])
+
+    def test_an_unknown_severity_is_refused(self):
+        """Ein Tippfehler im Filter darf nicht stillschweigend alles liefern."""
+        antwort = self.client.get("/api/v1/problems?severity=schlimm", headers=self.kopf)
+        self.assertEqual(422, antwort.status_code)
+        self.assertIn("severity", antwort.get_json()["error"]["fields"])
+
+    def test_the_problem_list_is_readable_for_a_read_only_key(self):
+        """Ein anbindendes System, das nur beobachtet, braucht keinen Schreibzugriff."""
+        from portal import security
+        from portal.db import Session
+        from portal.models import API_SCOPE_READ, ApiKey, new_api_key
+
+        roh, praefix = new_api_key()
+        Session.add(ApiKey(name="nurlesen", prefix=praefix, scope=API_SCOPE_READ,
+                           key_hash=security.hash_password(roh), created_by="test"))
+        Session.commit()
+        antwort = self.client.get("/api/v1/problems",
+                                  headers={"Authorization": "Bearer " + roh})
+        self.assertEqual(200, antwort.status_code)
+
+    def test_no_finding_leaks_a_credential(self):
+        """
+        Die Zusage gilt auch hier.
+
+        Ein Befund nennt Anwendungsnamen und Restlaufzeiten, nie einen Wert.
+        """
+        from portal.models import utcnow
+
+        kunde = self._kunde(last_status="error", last_check_at=utcnow(),
+                            last_error="GraphError: irgendwas")
+        self._credential(kunde, -5)
+        roh = json.dumps(self.client.get("/api/v1/problems",
+                                         headers=self.kopf).get_json())
+        self.assertNotIn(GEHEIM, roh)
+        self.assertNotIn("client_secret_enc", roh)

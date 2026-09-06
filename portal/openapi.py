@@ -34,6 +34,14 @@ CUSTOMER_SCHEMA = {
                                          "nullable": True}},
         },
         "is_active": {"type": "boolean"},
+        "state": {"type": "string",
+                  "enum": ["ok", "warn", "error", "stale", "unknown", "inactive"],
+                  "description": "Gesamtzustand, dieselbe Bewertung wie in der "
+                                 "Oberflaeche. Veraltete Zahlen schlagen eine "
+                                 "gruene Restlaufzeit."},
+        "problems": {"type": "array", "items": {"$ref": "#/components/schemas/Problem"},
+                     "description": "Lesbare Befunde, schwerster zuerst. Leer, "
+                                    "wenn nichts anliegt."},
         "thresholds": {
             "type": "object",
             "properties": {"warn_days": {"type": "integer"},
@@ -44,7 +52,11 @@ CUSTOMER_SCHEMA = {
             "properties": {
                 "last_check_at": {"type": "string", "format": "date-time", "nullable": True},
                 "status": {"type": "string", "enum": ["pending", "ok", "error"]},
-                "error": {"type": "string", "nullable": True},
+                "error": {"type": "string", "nullable": True,
+                          "description": "Rohtext. Die lesbare Fassung steht in "
+                                         "problems."},
+                "age_hours": {"type": "integer", "nullable": True,
+                              "description": "Stunden seit der letzten Pruefung."},
                 "slot_minute": {"type": "integer",
                                 "description": "Minute nach Mitternacht, zu der der "
                                                "tägliche Lauf startet."},
@@ -132,6 +144,33 @@ CUSTOMER_INPUT_SCHEMA = {
     },
 }
 
+# Ein Befund. Der Code ist fuer die Maschine, message und action fuer den
+# Menschen davor, detail traegt den Rohtext von Microsoft fuer die Rueckfrage.
+PROBLEM_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "code": {"type": "string",
+                 "enum": ["scan_failed", "credential_expired", "credential_critical",
+                          "credential_warning", "data_stale", "never_checked",
+                          "no_credential", "inactive", "own_certificate_expired",
+                          "own_certificate_expiring"]},
+        "severity": {"type": "string", "enum": ["error", "warn", "info"]},
+        "message": {"type": "string",
+                    "description": "Ein Satz, der sagt was los ist."},
+        "action": {"type": "string",
+                   "description": "Der naechste Schritt, sofern es einen gibt."},
+        "detail": {"type": "string",
+                   "description": "Nur bei scan_failed: der Rohtext des Fehlers."},
+        "entra_code": {"type": "string", "example": "AADSTS7000215",
+                       "description": "Nur wenn Microsoft eine Kennung geliefert hat."},
+        "count": {"type": "integer",
+                  "description": "Nur bei Befunden zu Zugangsdaten."},
+        "applications": {"type": "array", "items": {"type": "string"}},
+        "days_left": {"type": "integer"},
+        "age_hours": {"type": "integer"},
+    },
+}
+
 ERROR_SCHEMA = {
     "type": "object",
     "properties": {
@@ -192,6 +231,8 @@ def _operation(endpunkt, extras):
     }
     if "<key>" in endpunkt["pfad"]:
         operation["parameters"] = [SCHLUESSEL_PARAMETER]
+    if extras.get("parameter"):
+        operation["parameters"] = extras["parameter"]
     if "koerper" in extras:
         operation["requestBody"] = dict(required=True, **_json(extras["koerper"]))
     if endpunkt["bereich"] == API_SCOPE_WRITE:
@@ -226,6 +267,38 @@ BESONDERHEITEN = {
             "201": _antwort("Kunde angelegt", {"$ref": "#/components/schemas/Customer"}),
             "409": _antwort("Der Kurzname ist bereits vergeben",
                             {"$ref": "#/components/schemas/Error"}),
+            "422": {"$ref": "#/components/responses/ValidationFailed"},
+        },
+    },
+    "GET /api/v1/problems": {
+        "id": "listProblems", "tag": "Befunde",
+        "parameter": [{
+            "name": "severity", "in": "query", "required": False,
+            "schema": {"type": "string", "enum": ["error", "warn", "info"]},
+            "description": "Nur Kunden, die mindestens einen Befund dieser "
+                           "Schwere haben. Ohne Angabe kommen alle.",
+        }],
+        "antworten": {
+            "200": _antwort("Die Kunden, bei denen etwas nicht stimmt", {
+                "type": "object",
+                "properties": {
+                    "count": {"type": "integer",
+                              "description": "Kunden mit mindestens einem Befund."},
+                    "checked_customers": {"type": "integer",
+                                          "description": "Kunden insgesamt."},
+                    "customers": {"type": "array", "items": {
+                        "type": "object",
+                        "properties": {
+                            "key": {"type": "string"},
+                            "display_name": {"type": "string"},
+                            "state": {"type": "string"},
+                            "min_days": {"type": "integer", "nullable": True},
+                            "problems": {"type": "array",
+                                         "items": {"$ref": "#/components/schemas/Problem"}},
+                            "urls": {"$ref": "#/components/schemas/SensorUrls"},
+                        }}},
+                },
+            }),
             "422": {"$ref": "#/components/responses/ValidationFailed"},
         },
     },
@@ -321,6 +394,7 @@ def build(base_url, instance_name, endpunkte):
                 "Customer": CUSTOMER_SCHEMA,
                 "CustomerInput": CUSTOMER_INPUT_SCHEMA,
                 "Credential": CREDENTIAL_SCHEMA,
+                "Problem": PROBLEM_SCHEMA,
                 "SensorUrls": SENSOR_URLS_SCHEMA,
                 "Error": ERROR_SCHEMA,
             },
