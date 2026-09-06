@@ -139,7 +139,10 @@ jobs:
           echo "uid im Abbild: $nutzer"
 
       - name: Trivy gegen das Abbild
-        uses: aquasecurity/trivy-action@0.36.0
+        # Auf den Commit festgenagelt, nicht auf ein Etikett: ein Etikett
+        # laesst sich verschieben, und diese Action laeuft mit Zugriff auf
+        # das Repo. v0.36.0, Stand 06.09.2026.
+        uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8
         with:
           image-ref: portal-pruefung:ci
           severity: CRITICAL,HIGH
