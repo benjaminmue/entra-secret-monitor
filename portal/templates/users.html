@@ -5,14 +5,14 @@
 <p class="lead">Jedes Konto benötigt Passwort und zweiten Faktor. Neue Konten erhalten ein
   Einmalpasswort und richten die Authenticator-App bei der ersten Anmeldung ein.</p>
 
-<div class="actions" style="margin-bottom:20px">
+<div class="actions toolbar">
   <a class="btn" href="{{ url_for('users.create') }}">Konto anlegen</a>
 </div>
 
 <div class="card">
   <h2>Konten</h2>
   <div class="scroll">
-  <table>
+  <table class="stack">
     <thead><tr>
       <th>Benutzername</th><th class="wrap">Name</th><th>Rolle</th><th>Status</th>
       <th>2FA</th><th>Letzte Anmeldung</th><th>Aktionen</th>
@@ -20,18 +20,18 @@
     <tbody>
       {% for user in users %}
       <tr>
-        <td class="mono">{{ user.username }}</td>
-        <td class="wrap">{{ user.display_name }}<br><span class="hint">{{ user.email }}</span></td>
-        <td>{{ user.role_label }}</td>
-        <td>
+        <td class="mono" data-th="Benutzername">{{ user.username }}</td>
+        <td class="wrap" data-th="Name">{{ user.display_name }}<br><span class="hint">{{ user.email }}</span></td>
+        <td data-th="Rolle">{{ user.role_label }}</td>
+        <td data-th="Status">
           {% if user.is_active %}<span class="badge b-ok">aktiv</span>
           {% else %}<span class="badge b-muted">gesperrt</span>{% endif %}
           {% if user.must_change_password %}
             <span class="badge b-warn">Passwortwechsel</span>{% endif %}
         </td>
-        <td>{% if user.totp_ready %}<span class="badge b-ok">eingerichtet</span>
+        <td data-th="2FA">{% if user.totp_ready %}<span class="badge b-ok">eingerichtet</span>
             {% else %}<span class="badge b-warn">offen</span>{% endif %}</td>
-        <td class="mono">{{ user.last_login_at.strftime('%Y-%m-%d %H:%M')
+        <td class="mono" data-th="Anmeldung">{{ user.last_login_at.strftime('%Y-%m-%d %H:%M')
           if user.last_login_at else '-' }}</td>
         <td>
           <div class="actions">

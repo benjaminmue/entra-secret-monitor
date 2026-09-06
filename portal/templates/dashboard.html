@@ -10,10 +10,17 @@
   'inactive': ('b-muted', 'deaktiviert')
 } %}
 
+{# Dringlichkeit zuerst: Fehler vor Warnung vor Unbekannt vor in Ordnung,
+   deaktivierte Kunden am Ende. Innerhalb einer Stufe die knappste
+   Restlaufzeit zuoberst. #}
+{% set state_rank = {'error': 0, 'stale': 0, 'warn': 1, 'unknown': 2,
+                     'ok': 3, 'inactive': 4} %}
+
 {% block content %}
 <h1>Kundenübersicht</h1>
 <p class="lead">Restlaufzeit von Client Secrets und Zertifikaten in {{ totals.customers }}
-  Kundentenants. Jeder Kunde wird einmal täglich zu seiner eigenen Uhrzeit geprüft.</p>
+  Kundentenants. Jeder Kunde wird einmal täglich zu seiner eigenen Uhrzeit geprüft.
+  Sortiert nach Dringlichkeit.</p>
 
 <div class="tiles">
   <div class="tile"><div class="n">{{ totals.active }}</div>
@@ -33,48 +40,61 @@
       {% if may_write %}<a href="{{ url_for('customers.create') }}">Jetzt anlegen</a>.{% endif %}
     </p>
   {% else %}
-  <div class="scroll">
-  <table>
-    <thead>
-      <tr>
-        <th class="wrap">Kunde</th>
-        <th>Status</th>
-        <th class="num">Minimale Restlaufzeit</th>
-        <th class="num">Kritisch</th>
-        <th class="num">Abgelaufen</th>
-        <th class="num">Credentials</th>
-        <th>Letzte Prüfung</th>
-        <th>Slot (UTC)</th>
-        <th>PRTG</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for row in rows %}
-      {% set c = row.customer %}
-      {% set badge = state_badge.get(row.state, ('b-muted', row.state)) %}
-      <tr>
-        <td class="wrap">
-          <a href="{{ url_for('customers.detail', customer_id=c.id) }}">{{ c.display_name }}</a>
-          <div class="hint mono">{{ c.key }}</div>
-        </td>
-        <td><span class="badge {{ badge[0] }}">{{ badge[1] }}</span></td>
-        <td class="num">{{ c.min_days if c.min_days is not none else '-' }}</td>
-        <td class="num">{{ c.count_critical }}</td>
-        <td class="num">{{ c.count_expired }}</td>
-        <td class="num">{{ c.count_total }}</td>
-        <td>
-          {% if row.age_hours < 0 %}nie
-          {% else %}vor {{ row.age_hours }} h{% endif %}
-        </td>
-        <td class="mono">{{ c.slot_label }}</td>
-        <td>{% if may_write %}<a class="mono"
-            href="{{ url_for('prtg.prtg_xml', token=c.prtg_token) }}">XML</a>
-            {% else %}-{% endif %}</td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
+  {% set ns = namespace(sortable=[]) %}
+  {% for row in rows %}
+    {% set days_key = row.customer.min_days
+       if row.customer.min_days is not none else 100000 %}
+    {% set ns.sortable = ns.sortable
+       + [(state_rank.get(row.state, 2), days_key, loop.index0, row)] %}
+  {% endfor %}
+  <div class="cust-head" aria-hidden="true">
+    <span>Kunde</span>
+    <span>Restlaufzeit (Skala 180 Tage)</span>
+    <span>Status</span>
+    <span>Bestand</span>
+    <span class="ta-r">Prüfung</span>
   </div>
+  {% for item in ns.sortable|sort %}
+  {% set row = item[3] %}
+  {% set c = row.customer %}
+  {% set badge = state_badge.get(row.state, ('b-muted', row.state)) %}
+  <div class="cust-row st-{{ row.state }}">
+    <div class="cust-id">
+      <a href="{{ url_for('customers.detail', customer_id=c.id) }}">{{ c.display_name }}</a>
+      <span class="mono key">{{ c.key }}</span>
+    </div>
+    <div class="cust-days">
+      {% if c.min_days is not none %}
+        {% set floored = c.min_days if c.min_days > 0 else 0 %}
+        {% set bucket = (floored if floored < 180 else 180) * 20 // 180 %}
+        <div class="days"><span class="n">{{ c.min_days }}</span>
+          <span class="u">Tage</span></div>
+        <div class="runway"><span class="fill rw-{{ bucket }}"></span></div>
+      {% else %}
+        <div class="days"><span class="n">-</span></div>
+        <div class="runway"><span class="fill rw-0"></span></div>
+      {% endif %}
+    </div>
+    <div class="cust-state"><span class="badge {{ badge[0] }}">{{ badge[1] }}</span></div>
+    <div class="cust-counts">
+      <span class="mini{{ ' hot' if c.count_critical }}"><b>{{ c.count_critical }}</b>
+        kritisch</span>
+      <span class="mini{{ ' hot' if c.count_expired }}"><b>{{ c.count_expired }}</b>
+        abgelaufen</span>
+      <span class="mini"><b>{{ c.count_total }}</b> Credentials</span>
+    </div>
+    <div class="cust-check">
+      <span>
+        {% if row.age_hours < 0 %}nie geprüft
+        {% else %}vor {{ row.age_hours }} h{% endif %}
+      </span>
+      <span class="mono">Slot {{ c.slot_label }}</span>
+      {% if may_write %}<a class="mono"
+        href="{{ url_for('prtg.prtg_xml', token=c.prtg_token) }}">XML</a>
+      {% else %}<span class="mono">-</span>{% endif %}
+    </div>
+  </div>
+  {% endfor %}
   {% endif %}
 </div>
 

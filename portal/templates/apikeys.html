@@ -33,7 +33,7 @@
   <h2>Schlüssel</h2>
   {% if keys %}
   <div class="scroll">
-  <table>
+  <table class="stack">
     <thead><tr>
       <th>Bezeichnung</th><th>Präfix</th><th>Bereich</th><th>Status</th>
       <th>Angelegt</th><th>Zuletzt genutzt</th><th>Aktionen</th>
@@ -41,14 +41,14 @@
     <tbody>
       {% for key in keys %}
       <tr>
-        <td class="wrap">{{ key.name }}<br>
+        <td class="wrap" data-th="Bezeichnung">{{ key.name }}<br>
           <span class="hint">von {{ key.created_by or 'unbekannt' }}</span></td>
-        <td class="mono">{{ key.prefix }}</td>
-        <td>{{ key.scope_label }}</td>
-        <td>{% if key.is_active %}<span class="badge b-ok">aktiv</span>
+        <td class="mono" data-th="Präfix">{{ key.prefix }}</td>
+        <td data-th="Bereich">{{ key.scope_label }}</td>
+        <td data-th="Status">{% if key.is_active %}<span class="badge b-ok">aktiv</span>
             {% else %}<span class="badge b-muted">widerrufen</span>{% endif %}</td>
-        <td class="mono">{{ key.created_at.strftime('%Y-%m-%d') if key.created_at else '-' }}</td>
-        <td class="mono">{{ key.last_used_at.strftime('%Y-%m-%d %H:%M')
+        <td class="mono" data-th="Angelegt">{{ key.created_at.strftime('%Y-%m-%d') if key.created_at else '-' }}</td>
+        <td class="mono" data-th="Genutzt">{{ key.last_used_at.strftime('%Y-%m-%d %H:%M')
           if key.last_used_at else 'nie' }}</td>
         <td>
           <div class="actions">
@@ -79,16 +79,16 @@
 <div class="card">
   <h2>Endpunkte</h2>
   <div class="scroll">
-  <table>
+  <table class="stack">
     <thead><tr><th>Methode</th><th>Pfad</th><th>Bereich</th><th class="wrap">Zweck</th></tr></thead>
     <tbody>
       {% for endpoint in endpoints %}
       <tr>
-        <td class="mono">{{ endpoint.methode }}</td>
-        <td class="mono wrap">{{ endpoint.pfad }}</td>
-        <td>{% if endpoint.bereich == 'write' %}<span class="badge b-warn">schreibend</span>
+        <td class="mono" data-th="Methode">{{ endpoint.methode }}</td>
+        <td class="mono wrap" data-th="Pfad">{{ endpoint.pfad }}</td>
+        <td data-th="Bereich">{% if endpoint.bereich == 'write' %}<span class="badge b-warn">schreibend</span>
             {% else %}<span class="badge b-muted">lesend</span>{% endif %}</td>
-        <td class="wrap">{{ endpoint.zweck }}</td>
+        <td class="wrap" data-th="Zweck">{{ endpoint.zweck }}</td>
       </tr>
       {% endfor %}
     </tbody>

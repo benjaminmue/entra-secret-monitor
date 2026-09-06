@@ -84,39 +84,40 @@
   {% if not credentials %}
     <p class="lead">Kein gespeicherter Stand. Prüfung auslösen oder Fehler oben beachten.</p>
   {% else %}
-  <div class="scroll">
-  <table>
-    <thead><tr>
-      <th class="num">Restlaufzeit</th><th>Ablauf</th><th>Typ</th>
-      <th class="wrap">Anwendung</th><th class="wrap">Credential</th>
-      <th>Objekt</th><th class="num">Anzahl</th><th>Sensor</th>
-    </tr></thead>
-    <tbody>
-      {% for cred in credentials %}
-      <tr>
-        <td class="num">
-          {% if cred.days_left < customer.error_days %}
-            <span class="badge b-err">{{ cred.days_left }} Tage</span>
-          {% elif cred.days_left < customer.warn_days %}
-            <span class="badge b-warn">{{ cred.days_left }} Tage</span>
-          {% else %}
-            <span class="badge b-ok">{{ cred.days_left }} Tage</span>
-          {% endif %}
-        </td>
-        <td class="mono">{{ cred.end_date.strftime('%Y-%m-%d') }}</td>
-        <td>{{ cred.type_label }}</td>
-        <td class="wrap">{{ cred.app_name }}</td>
-        <td class="wrap">{{ cred.cred_name }}</td>
-        <td>{{ cred.object_label }}</td>
-        <td class="num">{{ cred.sibling_count }}</td>
-        <td>{% if may_write %}<a class="mono"
-               href="{{ url_for('prtg.prtg_xml', token=customer.prtg_token,
-               app=cred.app_name, type=cred.cred_type) }}">XML</a>{% else %}-{% endif %}</td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
+  <div class="cred-head" aria-hidden="true">
+    <span>Restlaufzeit (Skala 180 Tage)</span>
+    <span>Anwendung</span>
+    <span>Typ</span>
+    <span>Ablauf</span>
+    <span class="ta-r">Anzahl</span>
+    <span>Sensor</span>
   </div>
+  {% for cred in credentials %}
+  {% if cred.days_left < customer.error_days %}{% set sev = 'err' %}
+  {% elif cred.days_left < customer.warn_days %}{% set sev = 'warn' %}
+  {% else %}{% set sev = 'ok' %}{% endif %}
+  {% set floored = cred.days_left if cred.days_left > 0 else 0 %}
+  {% set bucket = (floored if floored < 180 else 180) * 20 // 180 %}
+  <div class="cred-row sev-{{ sev }}">
+    <div class="cred-days">
+      <div class="days"><span class="n">{{ cred.days_left }}</span>
+        <span class="u">Tage</span></div>
+      <div class="runway"><span class="fill rw-{{ bucket }}"></span></div>
+    </div>
+    <div class="cred-id">
+      <span class="app">{{ cred.app_name }}</span>
+      <span class="key">{{ cred.cred_name }}</span>
+    </div>
+    <div class="cred-type">{{ cred.type_label }}
+      <span class="sub">{{ cred.object_label }}</span></div>
+    <div class="cred-end mono">{{ cred.end_date.strftime('%Y-%m-%d') }}</div>
+    <div class="cred-count ta-r">{{ cred.sibling_count }}</div>
+    <div class="cred-xml">{% if may_write %}<a class="mono"
+         href="{{ url_for('prtg.prtg_xml', token=customer.prtg_token,
+         app=cred.app_name, type=cred.cred_type) }}">XML</a>
+      {% else %}<span class="mono">-</span>{% endif %}</div>
+  </div>
+  {% endfor %}
   <p class="hint">Je Anwendung und Typ zählt die längste Restlaufzeit. Ein frisch erneuertes
     Secret macht das alte irrelevant. Der Link <span class="mono">XML</span> liefert einen
     Sensor für genau diese eine Anwendung, Schwellen lassen sich mit
@@ -126,25 +127,31 @@
 
 <div class="card">
   <h2>Letzte Läufe</h2>
+  {% if not runs %}
+  <p class="hint">Noch kein Lauf aufgezeichnet.</p>
+  {% else %}
   <div class="scroll">
-  <table>
+  <table class="stack">
     <thead><tr><th>Start</th><th>Auslöser</th><th>Status</th><th class="num">Dauer</th>
       <th class="num">Credentials</th><th class="wrap">Meldung</th></tr></thead>
     <tbody>
       {% for run in runs %}
       <tr>
-        <td class="mono">{{ run.started_at.strftime('%Y-%m-%d %H:%M') }}</td>
-        <td>{{ run.trigger }}{% if run.triggered_by %} ({{ run.triggered_by }}){% endif %}</td>
-        <td><span class="badge {{ 'b-ok' if run.status == 'ok' else 'b-err' }}">
+        <td class="mono" data-th="Start">{{ run.started_at.strftime('%Y-%m-%d %H:%M') }}</td>
+        <td data-th="Auslöser">{{ run.trigger }}{% if run.triggered_by %}
+          ({{ run.triggered_by }}){% endif %}</td>
+        <td data-th="Status"><span class="badge {{ 'b-ok' if run.status == 'ok' else 'b-err' }}">
           {{ run.status }}</span></td>
-        <td class="num">{{ run.duration_ms }} ms</td>
-        <td class="num">{{ run.count_total }}</td>
-        <td class="wrap">{{ run.error_message }}</td>
+        <td class="num" data-th="Dauer">{{ run.duration_ms }} ms</td>
+        <td class="num" data-th="Credentials">{{ run.count_total }}</td>
+        <td class="wrap"{% if run.error_message %} data-th="Meldung"{% endif %}>{{
+          run.error_message }}</td>
       </tr>
       {% endfor %}
     </tbody>
   </table>
   </div>
+  {% endif %}
 </div>
 
 {% if customer.notes %}

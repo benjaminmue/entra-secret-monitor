@@ -9,14 +9,14 @@
 <div class="card">
   <h2>Benötigte Berechtigung</h2>
   <div class="scroll">
-  <table>
+  <table class="stack">
     <thead><tr><th>API</th><th>Berechtigung</th><th>Typ</th><th>Zustimmung</th></tr></thead>
     <tbody>
       <tr>
-        <td>{{ permission.api }}</td>
-        <td class="mono">{{ permission.name }}</td>
-        <td>{{ permission.type }}</td>
-        <td>{{ permission.consent }}</td>
+        <td data-th="API">{{ permission.api }}</td>
+        <td class="mono" data-th="Berechtigung">{{ permission.name }}</td>
+        <td data-th="Typ">{{ permission.type }}</td>
+        <td data-th="Zustimmung">{{ permission.consent }}</td>
       </tr>
     </tbody>
   </table>
