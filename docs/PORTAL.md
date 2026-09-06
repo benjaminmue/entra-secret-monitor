@@ -373,12 +373,18 @@ python -m pip install -r requirements-portal.txt
 PYTHONPATH=. python -m unittest discover -s tests -v
 ```
 
-402 Tests, keiner spricht mit Microsoft. Abgedeckt sind Passwortregeln, Verschlüsselung,
+420 Tests, keiner spricht mit Microsoft. Abgedeckt sind Passwortregeln, Verschlüsselung,
 TOTP-Wiedereinspielung, der zweistufige Anmeldeablauf, die Sperre auf der TOTP-Stufe, die
 Unmöglichkeit, eine bestätigte Authenticator-App über die Einrichtungsseite zu ersetzen,
 CSRF, der Kundenlebenszyklus samt PRTG-Ausgabe und Filterparametern, die Slotverteilung,
-die Einmal-pro-Tag-Regel, die Rollentrennung sowie die REST-Schnittstelle samt
-Bereichstrennung, Eingabeprüfung und der Zusage, dass kein Zugangsdatum herauskommt.
+die Einmal-pro-Tag-Regel, die Rollentrennung, die REST-Schnittstelle samt Bereichstrennung,
+Eingabeprüfung und der Zusage, dass kein Zugangsdatum herauskommt, sowie die Drosselung
+samt der Zusicherung, dass ein gültiger Schlüssel nie durch fremde Fehlversuche gesperrt
+wird.
+
+Mit installierten Extras muss die Zahl übersprungener Tests **null** sein. Der
+`needs_portal`-Marker überspringt sonst alles, was Flask, pyotp oder cryptography braucht,
+und ein halber Lauf meldet `OK (skipped=226)` statt eines Fehlers. Die CI prüft das.
 
 ## Grenzen
 
