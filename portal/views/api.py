@@ -103,11 +103,14 @@ def _fehlversuch_kennung(roh):
     """
     Identify what a failed authentication is counted against.
 
-    Bewusst der Praefix und nicht die Adresse. Der Praefix bestimmt, ob
-    ueberhaupt ein Argon2-Vergleich anfaellt: ohne passenden Praefix ist die
-    Abfrage eine indizierte Suche ohne Treffer und kostet nichts. Wer den
-    Praefix eines Schluessels kennt und dessen Geheimnis raten will, laeuft
-    damit gegen genau diesen Zaehler.
+    Bewusst der Praefix und nicht die Adresse. Wer den Praefix eines
+    Schluessels kennt und dessen Geheimnis raten will, laeuft damit gegen
+    genau diesen Zaehler, und andere Schluessel bleiben davon unberuehrt.
+
+    Seit der Umstellung auf einen schnellen Hash kostet ein Fehlversuch kaum
+    noch Rechenzeit. Der Zaehler bleibt trotzdem: er begrenzt die Menge, macht
+    das Durchprobieren im Protokoll sichtbar und ist die einzige Stelle, an der
+    ein solcher Versuch ueberhaupt auffaellt.
 
     Nach der Adresse zu zaehlen waere hier falsch: hinter einem Reverse Proxy
     teilen sich alle Aufrufer eine Adresse, und zehn Fehlversuche eines
@@ -173,8 +176,13 @@ def finde_schluessel(roh):
         select(ApiKey).where(ApiKey.prefix == teile[1])).scalar_one_or_none()
     if eintrag is None or not eintrag.is_active:
         return None
-    if not security.verify_password(eintrag.key_hash, roh):
+    if not security.verify_api_key(eintrag.key_hash, roh):
         return None
+    # Schluessel aus der Zeit vor dem schnellen Hash beim ersten richtigen
+    # Gebrauch umstellen. Ein Neuausstellen waere sonst noetig, nur damit die
+    # Anfrage nicht weiter 45 ms Argon2 kostet.
+    if security.api_key_needs_upgrade(eintrag.key_hash):
+        eintrag.key_hash = security.hash_api_key(roh)
     return eintrag
 
 
@@ -197,9 +205,8 @@ def authentifiziere(schreibend=False):
 
     # Zwei Zaehler, weil zwei verschiedene Angriffe dahinterstehen. Der
     # Praefixzaehler bremst das Raten des Geheimnisses zu einem bekannten
-    # Schluessel, also den teuren Argon2-Pfad. Der Adresszaehler bremst das
-    # Durchprobieren wechselnder Praefixe, das je Versuch nur eine indizierte
-    # Abfrage kostet, in der Menge aber trotzdem Last ist. Beide zaehlen nur
+    # Schluessel, der Adresszaehler das Durchprobieren wechselnder Praefixe.
+    # Beide zaehlen nur
     # Fehlversuche, deshalb kann keiner von beiden einen Aufrufer aussperren,
     # der einen gueltigen Schluessel mitschickt.
     adresse = "ip:%s" % audit.client_ip(config().trust_proxy)
@@ -297,6 +304,27 @@ def sensor_urls(kunde):
     }
 
 
+def lade_credentials(kunden_ids):
+    """
+    Load the stored credentials of many customers in one query.
+
+    Gibt eine Zuordnung von Kunden-ID auf die Liste zurueck, je Kunde nach
+    kuerzester Restlaufzeit sortiert. Eine Abfrage statt einer je Kunde: die
+    Kundenliste faehrt sonst ueber alle und fragt fuenfzig Mal nach.
+    """
+    if not kunden_ids:
+        return {}
+    zeilen = Session.execute(
+        select(CredentialSnapshot)
+        .where(CredentialSnapshot.customer_id.in_(kunden_ids))
+        .order_by(CredentialSnapshot.customer_id.asc(),
+                  CredentialSnapshot.days_left.asc())).scalars().all()
+    nach_kunde = {kid: [] for kid in kunden_ids}
+    for zeile in zeilen:
+        nach_kunde.setdefault(zeile.customer_id, []).append(zeile)
+    return nach_kunde
+
+
 def zustand_und_befunde(kunde, credentials):
     """
     The overall state plus the readable findings for one customer.
@@ -312,20 +340,18 @@ def zustand_und_befunde(kunde, credentials):
             diagnose.befunde(kunde, credentials, stale_hours))
 
 
-def kunde_als_json(kunde, mit_credentials=False):
+def kunde_als_json(kunde, mit_credentials=False, credentials=None):
     """
     Render one customer.
 
     Enthaelt bewusst kein Client Secret und keinen privaten Schluessel. Was ein
     Aufrufer erfaehrt, ist ob etwas hinterlegt ist und wann es ablaeuft.
     """
-    # Die Zugangsdaten werden hier einmal geladen und weitergereicht, weil
-    # sowohl die Befunde als auch die Ausgabe sie brauchen. Sonst entstuende je
-    # Kunde eine zweite Abfrage, und die Liste faehrt ueber alle Kunden.
-    gespeicherte = Session.execute(
-        select(CredentialSnapshot)
-        .where(CredentialSnapshot.customer_id == kunde.id)
-        .order_by(CredentialSnapshot.days_left.asc())).scalars().all()
+    # Die Zugangsdaten braucht sowohl die Befundung als auch die Ausgabe. Der
+    # Aufrufer kann sie mitgeben; die Listen tun das, weil sonst je Kunde eine
+    # eigene Abfrage entstuende. Gemessen bei 50 Kunden: 53 Abfragen statt 4.
+    gespeicherte = credentials if credentials is not None else lade_credentials(
+        [kunde.id]).get(kunde.id, [])
     zustand, probleme = zustand_und_befunde(kunde, gespeicherte)
     alter = data_age_hours(kunde)
 
@@ -633,8 +659,10 @@ def kunden_liste():
     """List every customer with its current summary."""
     kunden = Session.execute(
         select(Customer).order_by(Customer.display_name.asc())).scalars().all()
+    je_kunde = lade_credentials([k.id for k in kunden])
     return jsonify({"count": len(kunden),
-                    "customers": [kunde_als_json(k) for k in kunden]})
+                    "customers": [kunde_als_json(k, credentials=je_kunde.get(k.id, []))
+                                  for k in kunden]})
 
 
 @bp.route("/problems", methods=["GET"])
@@ -656,10 +684,11 @@ def probleme():
 
     kunden = Session.execute(
         select(Customer).order_by(Customer.display_name.asc())).scalars().all()
+    je_kunde = lade_credentials([k.id for k in kunden])
     rang = {"error": 0, "warn": 1, "info": 2, "unknown": 1}
     betroffen = []
     for kunde in kunden:
-        daten = kunde_als_json(kunde)
+        daten = kunde_als_json(kunde, credentials=je_kunde.get(kunde.id, []))
         if not daten["problems"]:
             continue
         if gewuenscht and not any(b["severity"] == gewuenscht for b in daten["problems"]):
