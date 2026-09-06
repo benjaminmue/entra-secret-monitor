@@ -50,7 +50,16 @@ CUSTOMER_SCHEMA = {
         "scan": {
             "type": "object",
             "properties": {
-                "last_check_at": {"type": "string", "format": "date-time", "nullable": True},
+                "last_check_at": {"type": "string", "format": "date-time",
+                                  "nullable": True,
+                                  "description": "Letzter Versuch, auch ein "
+                                                 "fehlgeschlagener."},
+                "last_success_at": {"type": "string", "format": "date-time",
+                                    "nullable": True,
+                                    "description": "Letzter erfolgreicher Lauf. "
+                                                   "Darauf beruht age_hours: ein "
+                                                   "Fehlschlag macht die Daten "
+                                                   "nicht frisch."},
                 "status": {"type": "string", "enum": ["pending", "ok", "error"]},
                 "error": {"type": "string", "nullable": True,
                           "description": "Rohtext. Die lesbare Fassung steht in "

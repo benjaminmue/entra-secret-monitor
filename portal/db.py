@@ -12,7 +12,7 @@ filtered away.
 
 from contextlib import contextmanager
 
-from sqlalchemy import create_engine, event
+from sqlalchemy import create_engine, event, inspect, text
 from sqlalchemy.orm import DeclarativeBase, scoped_session, sessionmaker
 
 # The session factory is created unbound at import time and receives its
@@ -57,8 +57,48 @@ def init_engine(database_url):
 
 
 def create_all():
-    """Create missing tables. The schema is additive, no migrations needed yet."""
+    """
+    Create missing tables, then add missing columns.
+
+    Das Schema waechst nur additiv, deshalb reicht dieser eine Schritt und es
+    braucht kein Migrationswerkzeug. Ohne ihn waere aber jede neue Spalte eine
+    stille Falle: create_all legt nur fehlende *Tabellen* an, und eine neue
+    Spalte an einer bestehenden Tabelle liesse jede Abfrage darauf auflaufen.
+    Eine neue Tabelle, wie api_keys, ging gut. Die erste neue Spalte haette es
+    nicht getan.
+    """
     Base.metadata.create_all(_engine)
+    _ergaenze_spalten()
+
+
+def _ergaenze_spalten():
+    """
+    Add columns the model knows and the database does not.
+
+    Nur nullable Spalten ohne Vorgabewert. Alles andere verlangt in SQLite ein
+    Umschreiben der Tabelle, und dann waere ein richtiges Migrationswerkzeug
+    faellig statt dieser fuenfzehn Zeilen.
+    """
+    pruefer = inspect(_engine)
+    with _engine.begin() as verbindung:
+        for tabelle in Base.metadata.sorted_tables:
+            if not pruefer.has_table(tabelle.name):
+                continue
+            vorhanden = {s["name"] for s in pruefer.get_columns(tabelle.name)}
+            for spalte in tabelle.columns:
+                if spalte.name in vorhanden:
+                    continue
+                if not spalte.nullable or spalte.server_default is not None:
+                    raise RuntimeError(
+                        "Spalte %s.%s laesst sich nicht nachtraeglich anlegen: "
+                        "sie ist nicht nullable oder hat einen Vorgabewert. "
+                        "Dafuer braucht es ein Migrationswerkzeug."
+                        % (tabelle.name, spalte.name))
+                typ = spalte.type.compile(_engine.dialect)
+                verbindung.execute(text('ALTER TABLE "%s" ADD COLUMN "%s" %s'
+                                        % (tabelle.name, spalte.name, typ)))
+                print("Spalte %s.%s nachgetragen" % (tabelle.name, spalte.name),
+                      flush=True)
 
 
 def remove_session(_exception=None):

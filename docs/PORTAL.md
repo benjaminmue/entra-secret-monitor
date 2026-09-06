@@ -361,7 +361,7 @@ im Prozessspeicher, siehe Grenzen.
 **API-Schlüssel.** SHA-256 über den ganzen Schlüssel, nachgeschlagen über den Präfix und
 verglichen in konstanter Zeit. Bewusst **nicht** Argon2: das macht ein Passwort teuer, weil ein
 Mensch etwa vierzig Bit Entropie wählt und es sonst offline durchprobiert wäre. Ein Schlüssel
-aus `secrets.token_urlsafe(32)` trägt 258 Bit; ihn zu raten ist unabhängig von der
+aus `secrets.token_urlsafe(32)` trägt 256 Bit; ihn zu raten ist unabhängig von der
 Hashgeschwindigkeit aussichtslos, und die Kosten träfen nur den, der ihn richtig mitschickt.
 Gemessen waren das 45 ms je Anfrage. Schlüssel aus der Zeit davor funktionieren weiter und
 werden beim ersten Gebrauch umgestellt. Der Bereich `read` kann nichts verändern, jeder Schreibversuch
@@ -467,6 +467,10 @@ nicht, deshalb die 0,6 ms.
 
 ## Grenzen
 
+- Das Schema wächst nur additiv. Beim Start werden fehlende Tabellen und
+  fehlende Spalten angelegt, mehr nicht. Eine Spalte, die nicht `nullable` ist
+  oder einen Vorgabewert hat, bricht den Start mit einer lesbaren Meldung ab;
+  dafür bräuchte es ein Migrationswerkzeug.
 - Ein Prozess, ein Scheduler. Zwei Instanzen auf derselben Datenbank würden Kunden
   doppelt prüfen. Aus demselben Grund liegt der Drosselungszähler im
   Prozessspeicher: er überlebt keinen Neustart und zählt nicht über Instanzen. Für Hochverfügbarkeit müsste die Fälligkeitsprüfung eine Sperre in

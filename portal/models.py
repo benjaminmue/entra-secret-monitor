@@ -163,6 +163,14 @@ class Customer(Base):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 
     last_check_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Getrennt vom letzten Versuch: last_check_at treibt den Zeitplan und muss
+    # deshalb auch bei einem Fehlschlag weiterruecken, sonst liefe der Kunde
+    # bei jedem Tick erneut. Das Alter der Daten haengt aber am letzten
+    # Erfolg. Ueber last_check_at gerechnet sah ein Kunde, dessen Scans
+    # dauerhaft scheitern, taggenau frisch aus, und genau den Fall soll der
+    # Kanal Datenalter im Sensor melden.
+    last_success_at: Mapped[datetime] = mapped_column(DateTime(timezone=True),
+                                                      nullable=True)
     last_status: Mapped[str] = mapped_column(String(16), default="pending")
     last_error: Mapped[str] = mapped_column(Text, default="")
     min_days: Mapped[int] = mapped_column(Integer, nullable=True)

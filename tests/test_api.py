@@ -1073,28 +1073,31 @@ class RateLimitTests(unittest.TestCase):
         self.assertIn(429, codes, codes)
         self.assertEqual(10, codes.count(401), codes)
 
-    def test_a_valid_key_is_not_locked_out_by_someone_elses_failures(self):
+    def test_a_valid_key_is_never_locked_out_by_failed_attempts(self):
         """
-        Der Kern der Umstellung von Adresse auf Präfix.
+        Die Zusicherung aus docs/SECURITY-GATE.md, jetzt vollständig.
 
-        Fehlversuche gegen einen anderen Schlüssel dürfen den eigenen nicht
-        treffen. Vorher zählte alles auf dieselbe Adresse, und hinter einem
-        Reverse Proxy hätte das jeden Aufrufer mitgesperrt.
-
-        Was bleibt, ist Absicht: wer den Präfix eines Schlüssels kennt, sperrt
-        genau diesen für die Dauer des Fensters. Dieselbe Abwägung wie beim
-        Kontologin, und der Wirkungskreis ist ein Schlüssel.
+        Zwei Fassungen davor waren schwächer. Die erste zählte je Adresse, dann
+        sperrten fremde Fehlversuche hinter einem Reverse Proxy jeden mit.
+        Die zweite zählte je Präfix, prüfte aber **vor** der Authentifizierung,
+        also sperrte das Raten am eigenen Schlüssel dessen Inhaber aus. Jetzt
+        werden die Zähler erst nach der Prüfung angefasst, und ein gültiger
+        Schlüssel kommt immer durch.
         """
-        fremd = self.keys["lesend"].split("_")[1]
-        for _ in range(14):
+        angegriffen = self.keys["lesend"].split("_")[1]
+        for _ in range(20):
             self.client.get("/api/v1/customers", headers={
-                "Authorization": "Bearer esm_%s_%s" % (fremd, "z" * 43)})
-        self.assertEqual(429, self.client.get("/api/v1/customers",
+                "Authorization": "Bearer esm_%s_%s" % (angegriffen, "z" * 43)})
+        for _ in range(70):
+            self.client.get("/api/v1/customers", headers={
+                "Authorization": "Bearer esm_deadbeef_%s" % ("y" * 43)})
+
+        self.assertEqual(200, self.client.get("/api/v1/customers",
                                               headers=self._kopf("lesend")).status_code,
-                         "der angegriffene Schlüssel muss gesperrt sein")
+                         "der angegriffene Schlüssel selbst muss durchkommen")
         self.assertEqual(200, self.client.get("/api/v1/customers",
                                               headers=self._kopf()).status_code,
-                         "ein anderer Schlüssel darf davon nichts merken")
+                         "ein anderer Schlüssel erst recht")
 
     def test_walking_through_prefixes_is_throttled_by_address(self):
         """
@@ -1625,6 +1628,60 @@ class DiagnoseTests(unittest.TestCase):
         self.assertEqual(["inactive"], [b["code"] for b in befunde])
         self.assertEqual("inactive", self._befunde()["state"])
 
+    def test_a_stored_certificate_date_survives_a_reload(self):
+        """
+        SQLite gibt Datumswerte ohne Zeitzone zurück, sobald neu geladen wird.
+
+        Der Test daneben hielt das Objekt in der Sitzung und sah deshalb nie
+        den Wert, wie er aus der Datenbank kommt. Ohne die Umrechnung stürzte
+        jede Kundenliste ab, bei der ein Kunde ein Zertifikat hinterlegt hat.
+        """
+        from datetime import timedelta
+
+        from portal.db import Session
+        from portal.models import utcnow
+
+        kunde = self._kunde(last_status="ok", last_check_at=utcnow())
+        kunde.cert_not_after = utcnow() + timedelta(days=10, hours=6)
+        Session.commit()
+        Session.remove()                       # erzwingt echtes Neuladen
+
+        for pfad in ("/api/v1/customers", "/api/v1/problems",
+                     "/api/v1/customers/musterag"):
+            with self.subTest(pfad=pfad):
+                self.assertEqual(200, self.client.get(pfad, headers=self.kopf).status_code)
+
+    def test_a_longer_code_is_not_mistaken_for_a_known_one(self):
+        """
+        "AADSTS70002150" enthält "AADSTS7000215" und bekäme sonst dessen Text.
+
+        Ein falscher Rat schickt jemanden in die falsche Richtung und kostet
+        mehr als gar kein Rat.
+        """
+        from portal.models import utcnow
+
+        self._kunde(last_status="error", last_check_at=utcnow(),
+                    last_error="Token-Endpoint HTTP 401: AADSTS70002150: etwas anderes")
+        befund = next(b for b in self._befunde()["problems"] if b["code"] == "scan_failed")
+        self.assertNotIn("entra_code", befund)
+        self.assertIn("fehlgeschlagen", befund["message"])
+
+    def test_the_expiry_finding_does_not_claim_an_outage(self):
+        """
+        Ob etwas ausgefallen ist, sagt der gespeicherte Stand nicht.
+
+        Die Anwendung kann bereits ein zweites, gültiges Zugangsdatum
+        verwenden. Der Text sagt deshalb, was zu prüfen ist, statt zu behaupten.
+        """
+        from portal.models import utcnow
+
+        kunde = self._kunde(last_status="ok", last_check_at=utcnow())
+        self._credential(kunde, -12)
+        befund = next(b for b in self._befunde()["problems"]
+                      if b["code"] == "credential_expired")
+        self.assertNotIn("funktioniert bereits nicht mehr", befund["action"])
+        self.assertIn("prüfen", befund["action"])
+
     def test_an_expiring_own_certificate_is_a_finding(self):
         """
         Läuft das Zertifikat des Portals ab, endet die Überwachung leise.
@@ -1716,6 +1773,49 @@ class DiagnoseTests(unittest.TestCase):
         daten = self.client.get("/api/v1/problems?severity=error",
                                 headers=self.kopf).get_json()
         self.assertEqual(["schlimm"], [k["key"] for k in daten["customers"]])
+
+    def test_stale_data_outranks_a_mere_warning_in_the_list(self):
+        """
+        Sortiert wird nach der Schwere der Befunde, nicht nach dem Zustandswort.
+
+        Über den Zustand lief es zuerst, und dabei landete ein Kunde mit
+        veralteten Daten hinter einem mit einer blossen Warnung, weil "stale"
+        in der Rangfolge fehlte.
+        """
+        from datetime import timedelta
+
+        from portal.models import utcnow
+
+        warnend = self._kunde("warnend", last_status="ok", last_check_at=utcnow())
+        self._credential(warnend, 20)
+        veraltet = self._kunde("veraltet", last_status="ok",
+                               last_check_at=utcnow() - timedelta(hours=200))
+        self._credential(veraltet, 300)
+
+        daten = self.client.get("/api/v1/problems", headers=self.kopf).get_json()
+        self.assertEqual(["veraltet", "warnend"], [k["key"] for k in daten["customers"]])
+
+    def test_a_critical_finding_on_an_otherwise_healthy_customer_comes_first(self):
+        """
+        Ein ablaufendes eigenes Zertifikat macht den Kunden nicht rot.
+
+        Der Zustand bleibt "ok", weil seine eigenen Zugangsdaten in Ordnung
+        sind. Über den Zustand sortiert wäre er hinten gelandet.
+        """
+        from datetime import timedelta
+
+        from portal.db import Session
+        from portal.models import utcnow
+
+        warnend = self._kunde("warnend", last_status="ok", last_check_at=utcnow())
+        self._credential(warnend, 20)
+        zert = self._kunde("zertifikat", last_status="ok", last_check_at=utcnow())
+        self._credential(zert, 300)
+        zert.cert_not_after = utcnow() - timedelta(days=5)
+        Session.commit()
+
+        daten = self.client.get("/api/v1/problems", headers=self.kopf).get_json()
+        self.assertEqual("zertifikat", daten["customers"][0]["key"])
 
     def test_an_unknown_severity_is_refused(self):
         """Ein Tippfehler im Filter darf nicht stillschweigend alles liefern."""

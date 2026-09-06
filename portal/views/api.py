@@ -193,8 +193,15 @@ def authentifiziere(schreibend=False):
     Gibt (eintrag, fehlerantwort) zurueck, genau eines davon gefuellt. Als
     eigene Funktion und nicht nur im Dekorator, weil /openapi.json ebenfalls
     einen Schluessel annimmt: als der Weg dort an der Drosselung vorbeilief,
-    liess sich der Argon2-Vergleich ueber diese eine Route unbegrenzt
+    liess sich die Schluesselpruefung ueber diese eine Route unbegrenzt
     ausloesen, waehrend jede andere Route laengst 429 lieferte.
+
+    **Die Zaehler werden erst nach der Pruefung angefasst.** Zuerst lief es
+    andersherum, und dann sperrten fremde Fehlversuche von derselben Adresse
+    auch einen Aufrufer aus, der einen gueltigen Schluessel mitschickte. Genau
+    das schliesst docs/SECURITY-GATE.md aus, und die Zusicherung war damit
+    falsch. Seit der Schluesselvergleich kein Argon2 mehr ist, kostet eine
+    Suche ohnehin fast nichts, es gibt also keinen Grund mehr, vorab zu sperren.
     """
     allgemein, versuche, _, anonym = _grenzen()
     roh = schluessel_aus_anfrage()
@@ -203,54 +210,40 @@ def authentifiziere(schreibend=False):
                             "Kein API-Schlüssel. Erwartet wird der Kopf "
                             "'Authorization: Bearer <schlüssel>'.")
 
-    # Zwei Zaehler, weil zwei verschiedene Angriffe dahinterstehen. Der
-    # Praefixzaehler bremst das Raten des Geheimnisses zu einem bekannten
-    # Schluessel, der Adresszaehler das Durchprobieren wechselnder Praefixe.
-    # Beide zaehlen nur
-    # Fehlversuche, deshalb kann keiner von beiden einen Aufrufer aussperren,
-    # der einen gueltigen Schluessel mitschickt.
-    adresse = "ip:%s" % audit.client_ip(config().trust_proxy)
-    erlaubt, warten = ratelimit.pruefe(anonym, adresse)
-    if not erlaubt:
-        return None, zu_schnell(warten, "Zu viele fehlgeschlagene Anfragen von "
-                                        "dieser Adresse. Bitte %d Sekunden "
-                                        "warten." % warten)
-
-    kennung = _fehlversuch_kennung(roh)
-    # Ein einziger, atomarer Aufruf: nachsehen und zaehlen in einem Schritt,
-    # damit nebenlaeufige Versuche nicht gemeinsam durch eine Vorpruefung
-    # rutschen. Gezaehlt wird der Versuch, freigegeben wird er unten wieder,
-    # wenn der Schluessel stimmt.
-    erlaubt, warten = ratelimit.pruefe(versuche, kennung)
-    if not erlaubt:
-        return None, zu_schnell(warten, "Zu viele fehlgeschlagene Anmeldungen für "
-                                        "diesen Schlüssel. Bitte %d Sekunden "
-                                        "warten." % warten)
-
     eintrag = finde_schluessel(roh)
-    if eintrag is None:
-        # Nur mit passendem Praefix protokolliert. Sonst schriebe jeder
-        # Portscanner, der /api/v1 anfaesst, eine Zeile ins Protokoll.
-        if _praefix(roh):
-            audit.log(Session, "apikey.rejected", actor="api",
-                      target=_praefix(roh), success=False,
-                      detail="Unbekannter oder widerrufener Schlüssel",
-                      trust_proxy=config().trust_proxy)
-        return None, fehler(401, "invalid_key",
-                            "Der API-Schlüssel ist unbekannt oder widerrufen.")
 
-    if schreibend and not eintrag.may_write:
+    if eintrag is None or (schreibend and not eintrag.may_write):
+        # Zwei Zaehler, weil zwei verschiedene Angriffe dahinterstehen: das
+        # Raten des Geheimnisses zu einem bekannten Praefix, und das
+        # Durchprobieren wechselnder Praefixe. Beide sehen nur Fehlversuche.
+        adresse = "ip:%s" % audit.client_ip(config().trust_proxy)
+        gebremst = [ratelimit.pruefe(versuche, _fehlversuch_kennung(roh)),
+                    ratelimit.pruefe(anonym, adresse)]
+        wartezeiten = [warten for erlaubt, warten in gebremst if not erlaubt]
+
+        if eintrag is None:
+            if _praefix(roh):
+                audit.log(Session, "apikey.rejected", actor="api",
+                          target=_praefix(roh), success=False,
+                          detail="Unbekannter oder widerrufener Schlüssel",
+                          trust_proxy=config().trust_proxy)
+            if wartezeiten:
+                return None, zu_schnell(max(wartezeiten),
+                                        "Zu viele fehlgeschlagene Anmeldungen. "
+                                        "Bitte %d Sekunden warten."
+                                        % max(wartezeiten))
+            return None, fehler(401, "invalid_key",
+                                "Der API-Schlüssel ist unbekannt oder widerrufen.")
+
         audit.log(Session, "apikey.denied", actor="apikey:%s" % eintrag.name,
                   target=request.path, success=False,
                   detail="Schreibzugriff mit lesendem Schlüssel",
                   trust_proxy=config().trust_proxy)
+        if wartezeiten:
+            return None, zu_schnell(max(wartezeiten),
+                                    "Zu viele abgewiesene Zugriffe. Bitte %d "
+                                    "Sekunden warten." % max(wartezeiten))
         return None, fehler(403, "read_only", "Dieser Schlüssel darf nur lesen.")
-
-    # Der Schluessel stimmt: der eben gezaehlte Versuch war keiner. Ohne diese
-    # Rueckgabe verbrauchte ein fleissiger, korrekter Aufrufer sein eigenes
-    # Fehlerkontingent und sperrte sich nach zehn Aufrufen selbst aus.
-    ratelimit.gib_frei(versuche, kennung)
-    ratelimit.gib_frei(anonym, adresse)
 
     eintrag.last_used_at = utcnow()
     Session.commit()
@@ -372,6 +365,7 @@ def kunde_als_json(kunde, mit_credentials=False, credentials=None):
         "problems": probleme,
         "scan": {
             "last_check_at": zeitstempel(kunde.last_check_at),
+            "last_success_at": zeitstempel(kunde.last_success_at),
             "status": kunde.last_status,
             "error": kunde.last_error or None,
             "age_hours": alter if alter >= 0 else None,
@@ -685,7 +679,11 @@ def probleme():
     kunden = Session.execute(
         select(Customer).order_by(Customer.display_name.asc())).scalars().all()
     je_kunde = lade_credentials([k.id for k in kunden])
-    rang = {"error": 0, "warn": 1, "info": 2, "unknown": 1}
+    # Sortiert wird nach der Schwere der Befunde, nicht nach dem Zustandswort.
+    # Ueber den Zustand lief es zuerst, und dabei landete ein Kunde mit
+    # veralteten Daten hinter einem mit einer blossen Warnung, weil "stale" in
+    # der Rangfolge fehlte. Die Befunde tragen die Dringlichkeit ohnehin.
+    rang = {"error": 0, "warn": 1, "info": 2}
     betroffen = []
     for kunde in kunden:
         daten = kunde_als_json(kunde, credentials=je_kunde.get(kunde.id, []))
@@ -702,7 +700,7 @@ def probleme():
             "urls": daten["urls"],
         })
 
-    betroffen.sort(key=lambda e: (rang.get(e["state"], 3),
+    betroffen.sort(key=lambda e: (min(rang.get(b["severity"], 3) for b in e["problems"]),
                                   e["min_days"] if e["min_days"] is not None else 9999))
     return jsonify({"count": len(betroffen),
                     "checked_customers": len(kunden),
