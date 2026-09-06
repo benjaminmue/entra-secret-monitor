@@ -169,6 +169,7 @@ def run_check(session, customer, encryption_key, trigger=TRIGGER_SCHEDULE, actor
     customer.last_status = "ok"
     customer.last_error = ""
     customer.last_check_at = run.finished_at
+    customer.last_success_at = run.finished_at
     customer.min_days = summary["minimum"]
     customer.count_total = summary["total"]
     customer.count_critical = summary["critical"]
@@ -235,10 +236,19 @@ def result_from_db(session, customer, max_channels=None):
 
 
 def data_age_hours(customer):
-    """Whole hours since the last successful scan, -1 when never scanned."""
-    if not customer.last_check_at:
+    """
+    Whole hours since the last successful scan, -1 when never scanned.
+
+    Bewusst last_success_at und nicht last_check_at: ein fehlgeschlagener Lauf
+    rueckt den Versuch weiter, nicht die Daten. Vorher setzte jeder Fehlschlag
+    das Alter auf null zurueck, und ein Kunde, dessen Scans dauerhaft
+    scheitern, meldete dem Sensor frische Daten.
+    """
+    letzter = customer.last_success_at or (
+        customer.last_check_at if customer.last_status != "error" else None)
+    if not letzter:
         return -1
-    checked = customer.last_check_at
+    checked = letzter
     if checked.tzinfo is None:
         checked = checked.replace(tzinfo=timezone.utc)
     return int((datetime.now(timezone.utc) - checked).total_seconds() // 3600)

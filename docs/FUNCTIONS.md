@@ -9,7 +9,7 @@ Implementierungen derselben Sache werden.
 | Kennzahl | Wert |
 |---|---|
 | Module | 26 |
-| Funktionen | 255 |
+| Funktionen | 257 |
 | Ohne Docstring | 4 |
 | Namensdubletten | 0 |
 | Strukturdubletten | 0 |
@@ -146,20 +146,22 @@ nicht eine Ausnahme vom Aufräumen.
 |---|---|---|---|
 | 31 | `_sqlite_pragmas(dbapi_connection, _record)` | kein Rückgabewert | Enable write ahead logging and foreign keys on every SQLite connection. |
 | 40 | `init_engine(database_url)` | Wert | Create the engine and bind the session factory, idempotent per process. |
-| 59 | `create_all()` | kein Rückgabewert | Create missing tables. The schema is additive, no migrations needed yet. |
-| 64 | `remove_session(_exception=None)` | kein Rückgabewert | Drop the request bound session, registered as Flask teardown handler. |
-| 70 | `session_scope()` | Generator | Provide a transactional session for background work outside a request. |
+| 59 | `create_all()` | kein Rückgabewert | Create missing tables, then add missing columns. |
+| 74 | `_ergaenze_spalten()` | kein Rückgabewert | Add columns the model knows and the database does not. |
+| 104 | `remove_session(_exception=None)` | kein Rückgabewert | Drop the request bound session, registered as Flask teardown handler. |
+| 110 | `session_scope()` | Generator | Provide a transactional session for background work outside a request. |
 
 ### `portal/diagnose.py`
 
 | Zeile | Funktion | Rückgabe | Beschreibung |
 |---|---|---|---|
-| 81 | `_befund(code, schwere, meldung, massnahme=None, **felder)` | Wert | One finding: machine readable code, a sentence, optionally what to do. |
-| 90 | `erklaere_lauffehler(rohtext)` | Wert | Turn the stored error text into a readable finding. |
-| 112 | `_liste(credentials)` | Wert | Readable names of the affected credentials, sorted and without repeats. |
-| 118 | `_satz(namen, einzahl, mehrzahl)` | Wert | Build the sentence in the right number. |
-| 131 | `_ablaufende(credentials, kunde)` | Wert | Findings about the credentials this customer has in its tenant. |
-| 174 | `befunde(kunde, credentials, stale_hours)` | Wert | Every finding for one customer, most severe first. |
+| 96 | `_als_utc(wert)` | Wert | Treat a stored datetime as UTC when it comes back without a zone. |
+| 107 | `_befund(code, schwere, meldung, massnahme=None, **felder)` | Wert | One finding: machine readable code, a sentence, optionally what to do. |
+| 116 | `erklaere_lauffehler(rohtext)` | Wert | Turn the stored error text into a readable finding. |
+| 142 | `_liste(credentials)` | Wert | Readable names of the affected credentials, sorted and without repeats. |
+| 148 | `_satz(namen, einzahl, mehrzahl)` | Wert | Build the sentence in the right number. |
+| 161 | `_ablaufende(credentials, kunde)` | Wert | Findings about the credentials this customer has in its tenant. |
+| 207 | `befunde(kunde, credentials, stale_hours)` | Wert | Every finding for one customer, most severe first. |
 
 ### `portal/factory.py`
 
@@ -200,23 +202,23 @@ nicht eine Ausnahme vom Aufräumen.
 | 99 | `is_authenticated(self)` | Wert | Flask-Login interface; a loaded user always counts as authenticated. |
 | 104 | `is_anonymous(self)` | Wert | Flask-Login interface. |
 | 108 | `get_id(self)` | Wert | Flask-Login interface; the session stores the primary key. |
-| 184 | `slot_label(self)` | Wert | Assigned scan time of day as HH:MM in UTC. |
-| 189 | `auth_label(self)` | Wert | German label of the configured authentication method. |
-| 250 | `type_label(self)` | Wert | German label of the credential type. |
-| 255 | `object_label(self)` | Wert | German label of the owning directory object. |
-| 289 | `new_api_key()` | Wert | Return (vollstaendiger Schluessel, Praefix) for a fresh API key. |
-| 324 | `is_active(self)` | Wert | True while the key has not been revoked. |
-| 329 | `may_write(self)` | Wert | True when the key is allowed to change anything. |
-| 334 | `scope_label(self)` | Wert | German label of the scope for display. |
+| 192 | `slot_label(self)` | Wert | Assigned scan time of day as HH:MM in UTC. |
+| 197 | `auth_label(self)` | Wert | German label of the configured authentication method. |
+| 258 | `type_label(self)` | Wert | German label of the credential type. |
+| 263 | `object_label(self)` | Wert | German label of the owning directory object. |
+| 297 | `new_api_key()` | Wert | Return (vollstaendiger Schluessel, Praefix) for a fresh API key. |
+| 332 | `is_active(self)` | Wert | True while the key has not been revoked. |
+| 337 | `may_write(self)` | Wert | True when the key is allowed to change anything. |
+| 342 | `scope_label(self)` | Wert | German label of the scope for display. |
 
 ### `portal/openapi.py`
 
 | Zeile | Funktion | Rückgabe | Beschreibung |
 |---|---|---|---|
-| 205 | `_json(schema_ref)` | Wert | Shorthand for one application/json body of the given schema. |
-| 210 | `_antwort(beschreibung, schema_ref=None)` | Wert | One response entry, with or without a body. |
-| 218 | `_operation(endpunkt, extras)` | Wert | Build one operation object from a directory entry plus its specifics. |
-| 360 | `build(base_url, instance_name, endpunkte)` | Wert | Render the OpenAPI document of this instance. |
+| 214 | `_json(schema_ref)` | Wert | Shorthand for one application/json body of the given schema. |
+| 219 | `_antwort(beschreibung, schema_ref=None)` | Wert | One response entry, with or without a body. |
+| 227 | `_operation(endpunkt, extras)` | Wert | Build one operation object from a directory entry plus its specifics. |
+| 369 | `build(base_url, instance_name, endpunkte)` | Wert | Render the OpenAPI document of this instance. |
 
 ### `portal/ratelimit.py`
 
@@ -238,10 +240,10 @@ nicht eine Ausnahme vom Aufräumen.
 | 36 | `customer_to_config(customer, encryption_key)` | Wert | Build the graph.TenantConfig for one customer, decrypting its credential. |
 | 75 | `inspect_certificate(cert_pem, key_pem)` | Wert | Validate an uploaded key pair and return (thumbprint, not_after). |
 | 112 | `run_check(session, customer, encryption_key, trigger=TRIGGER_SCHEDULE, actor='system', history_runs=30)` | Wert | Execute one scan for a customer and persist the outcome. |
-| 182 | `_trim_history(session, customer_id, keep)` | kein Rückgabewert | Delete check runs beyond the configured history depth. |
-| 191 | `result_from_db(session, customer, max_channels=None)` | Wert | Rebuild the renderer result structure from the stored snapshot. |
-| 237 | `data_age_hours(customer)` | Wert | Whole hours since the last successful scan, -1 when never scanned. |
-| 247 | `filter_result(result, app='', name_filter='', exclude='', cred_type='', warn_days=None, error_days=None, max_channels=None)` | Wert | Narrow a stored result down to a subset of its channels. |
+| 183 | `_trim_history(session, customer_id, keep)` | kein Rückgabewert | Delete check runs beyond the configured history depth. |
+| 192 | `result_from_db(session, customer, max_channels=None)` | Wert | Rebuild the renderer result structure from the stored snapshot. |
+| 238 | `data_age_hours(customer)` | Wert | Whole hours since the last successful scan, -1 when never scanned. |
+| 257 | `filter_result(result, app='', name_filter='', exclude='', cred_type='', warn_days=None, error_days=None, max_channels=None)` | Wert | Narrow a stored result down to a subset of its channels. |
 
 ### `portal/scheduler.py`
 
@@ -299,37 +301,37 @@ nicht eine Ausnahme vom Aufräumen.
 | 154 | `schluessel_aus_anfrage()` | Wert | Read the bearer token from the Authorization header, or None. |
 | 162 | `finde_schluessel(roh)` | Wert | Resolve a presented key to its record, or None. |
 | 189 | `authentifiziere(schreibend=False)` | Wert | Resolve and authorise the presented key, or return a ready error response. |
-| 265 | `benoetigt_schluessel(schreibend=False)` | Wert | Decorator: require a valid API key, optionally one that may write. |
-| 271 | `dekorator(sicht)` | Wert | _ohne Docstring_ |
-| 273 | `huelle(*args, **kwargs)` | Wert | _ohne Docstring_ |
-| 287 | `zeitstempel(wert)` | Wert | ISO 8601 in UTC, oder None. |
-| 296 | `sensor_urls(kunde)` | Wert | The externally reachable sensor URLs of one customer. |
-| 307 | `lade_credentials(kunden_ids)` | Wert | Load the stored credentials of many customers in one query. |
-| 328 | `zustand_und_befunde(kunde, credentials)` | Wert | The overall state plus the readable findings for one customer. |
-| 343 | `kunde_als_json(kunde, mit_credentials=False, credentials=None)` | Wert | Render one customer. |
-| 393 | `credential_als_json(eintrag)` | Wert | Render one stored credential. Never carries a secret value. |
-| 408 | `hole_kunde(schluessel)` | Wert | Load a customer by its key, or None. |
-| 436 | `als_ganzzahl(wert)` | Wert | Read one integer from the request, or None when it is not one. |
-| 453 | `text(daten, feld, kunde=None, standard='')` | Wert | Read one text field, falling back to the stored value. |
-| 462 | `zahl(daten, feld, standard)` | Wert | Read one integer field, falling back to the given default. |
-| 467 | `pruefe_typen(daten)` | Wert | Reject fields whose type cannot be used, before anything touches them. |
-| 497 | `pruefe_schwellen(daten, kunde=None)` | Wert | Check the pair of thresholds in the state it would end up in. |
-| 518 | `pruefe_zugangsdaten(daten, kunde=None)` | Wert | Check that the resulting authentication method has usable material. |
-| 557 | `pruefe_anlage(daten)` | Wert | Validate the body of a create request, returning a dict of field errors. |
-| 576 | `pruefe_aenderung(daten, kunde)` | Wert | Validate a change against the state the customer would end up in. |
-| 585 | `uebernehme_zugangsdaten(kunde, daten, schluesselmaterial)` | kein Rückgabewert | Store the credential that matches the chosen method. |
-| 627 | `wurzel()` | Wert | Entry point: version and the available endpoints. |
-| 640 | `openapi_document()` | Wert | The machine readable description of this instance. |
-| 658 | `kunden_liste()` | Wert | List every customer with its current summary. |
-| 670 | `probleme()` | Wert | Only the customers that need attention, with a readable finding each. |
-| 714 | `kunde_anlegen()` | Wert | Create a customer, store its credential and schedule a daily slot. |
-| 761 | `kunde_lesen(key)` | Wert | One customer including its stored credentials. |
-| 771 | `kunde_aendern(key)` | Wert | Change a customer. Fields left out keep their value. |
-| 812 | `kunde_loeschen(key)` | Wert | Remove a customer with its history. |
-| 827 | `kunde_pruefen(key)` | Wert | Run a scan for this customer right now. |
-| 871 | `kunde_credentials(key)` | Wert | The stored credentials of one customer, shortest runtime first. |
-| 887 | `kunde_urls(key)` | Wert | The sensor URLs of one customer. |
-| 897 | `kunde_token(key)` | Wert | Issue a new PRTG token; the previous sensor URL stops serving data. |
+| 258 | `benoetigt_schluessel(schreibend=False)` | Wert | Decorator: require a valid API key, optionally one that may write. |
+| 264 | `dekorator(sicht)` | Wert | _ohne Docstring_ |
+| 266 | `huelle(*args, **kwargs)` | Wert | _ohne Docstring_ |
+| 280 | `zeitstempel(wert)` | Wert | ISO 8601 in UTC, oder None. |
+| 289 | `sensor_urls(kunde)` | Wert | The externally reachable sensor URLs of one customer. |
+| 300 | `lade_credentials(kunden_ids)` | Wert | Load the stored credentials of many customers in one query. |
+| 321 | `zustand_und_befunde(kunde, credentials)` | Wert | The overall state plus the readable findings for one customer. |
+| 336 | `kunde_als_json(kunde, mit_credentials=False, credentials=None)` | Wert | Render one customer. |
+| 387 | `credential_als_json(eintrag)` | Wert | Render one stored credential. Never carries a secret value. |
+| 402 | `hole_kunde(schluessel)` | Wert | Load a customer by its key, or None. |
+| 430 | `als_ganzzahl(wert)` | Wert | Read one integer from the request, or None when it is not one. |
+| 447 | `text(daten, feld, kunde=None, standard='')` | Wert | Read one text field, falling back to the stored value. |
+| 456 | `zahl(daten, feld, standard)` | Wert | Read one integer field, falling back to the given default. |
+| 461 | `pruefe_typen(daten)` | Wert | Reject fields whose type cannot be used, before anything touches them. |
+| 491 | `pruefe_schwellen(daten, kunde=None)` | Wert | Check the pair of thresholds in the state it would end up in. |
+| 512 | `pruefe_zugangsdaten(daten, kunde=None)` | Wert | Check that the resulting authentication method has usable material. |
+| 551 | `pruefe_anlage(daten)` | Wert | Validate the body of a create request, returning a dict of field errors. |
+| 570 | `pruefe_aenderung(daten, kunde)` | Wert | Validate a change against the state the customer would end up in. |
+| 579 | `uebernehme_zugangsdaten(kunde, daten, schluesselmaterial)` | kein Rückgabewert | Store the credential that matches the chosen method. |
+| 621 | `wurzel()` | Wert | Entry point: version and the available endpoints. |
+| 634 | `openapi_document()` | Wert | The machine readable description of this instance. |
+| 652 | `kunden_liste()` | Wert | List every customer with its current summary. |
+| 664 | `probleme()` | Wert | Only the customers that need attention, with a readable finding each. |
+| 712 | `kunde_anlegen()` | Wert | Create a customer, store its credential and schedule a daily slot. |
+| 759 | `kunde_lesen(key)` | Wert | One customer including its stored credentials. |
+| 769 | `kunde_aendern(key)` | Wert | Change a customer. Fields left out keep their value. |
+| 810 | `kunde_loeschen(key)` | Wert | Remove a customer with its history. |
+| 825 | `kunde_pruefen(key)` | Wert | Run a scan for this customer right now. |
+| 869 | `kunde_credentials(key)` | Wert | The stored credentials of one customer, shortest runtime first. |
+| 885 | `kunde_urls(key)` | Wert | The sensor URLs of one customer. |
+| 895 | `kunde_token(key)` | Wert | Issue a new PRTG token; the previous sensor URL stops serving data. |
 
 ### `portal/views/apikeys.py`
 

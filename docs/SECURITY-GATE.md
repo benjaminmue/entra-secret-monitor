@@ -113,10 +113,14 @@ API-Schlüssel bewusst ein Schlüssel zur Instanz, nicht zu einem Kunden.
   bekannten Schlüssel zählt je Präfix, und da spielt die Adresse keine Rolle.
   Wer den Proxy einrichtet, muss `X-Forwarded-For` dort setzen und nicht
   durchreichen.
-- **Ein gültiger Schlüssel wird nie durch fremde Fehlversuche gesperrt.** Beide
-  Fehlerzähler geben ihren Eintrag zurück, sobald die Authentifizierung
-  gelingt. Das ist eine Zusicherung, kein Nebeneffekt, und ein Test hält sie
-  fest.
+- **Ein gültiger Schlüssel wird nie durch Fehlversuche gesperrt.** Die Zähler
+  werden erst nach der Prüfung angefasst und sehen deshalb nur Fehlversuche.
+  Zwei Fassungen davor waren schwächer und die Zusicherung hier war falsch:
+  die erste zählte je Adresse, also sperrten fremde Fehlversuche hinter einem
+  Reverse Proxy jeden mit; die zweite zählte je Präfix, prüfte aber **vor** der
+  Authentifizierung, also sperrte das Raten am eigenen Schlüssel dessen Inhaber
+  aus. Beides fiel erst in einer Gegenprüfung auf. Ein Test hält den heutigen
+  Stand fest.
 - **Sensor-URLs enthalten das Token.** Wer eine URL hat, liest die Kanäle dieses
   Kunden ohne API-Schlüssel, und der Widerruf eines Schlüssels nimmt das nicht
   zurück. Gegenmittel ist `POST /api/v1/customers/<key>/token`.

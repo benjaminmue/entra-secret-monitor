@@ -10,6 +10,7 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
 import unittest
 from datetime import datetime, timedelta, timezone
 from unittest import mock
@@ -147,8 +148,9 @@ class DashboardStatusTest(unittest.TestCase):
             pass
 
     def _customer(self, **fields):
+        jetzt = datetime.now(timezone.utc)
         values = dict(is_active=True, last_status="ok",
-                      last_check_at=datetime.now(timezone.utc),
+                      last_check_at=jetzt, last_success_at=jetzt,
                       count_expired=0, min_days=100, warn_days=30, error_days=14)
         values.update(fields)
         return mock.Mock(**values)
@@ -175,7 +177,24 @@ class DashboardStatusTest(unittest.TestCase):
     def test_old_data_is_stale_even_when_the_numbers_look_good(self):
         # Otherwise a stalled scheduler stays green while the numbers freeze.
         old = datetime.now(timezone.utc) - timedelta(hours=100)
-        self.assertEqual("stale", self._status(self._customer(last_check_at=old)))
+        self.assertEqual("stale", self._status(
+            self._customer(last_check_at=old, last_success_at=old)))
+
+    def test_a_failed_scan_does_not_make_old_data_look_fresh(self):
+        """
+        Der Fehlschlag rückt den Versuch weiter, nicht die Daten.
+
+        Über last_check_at gerechnet sah ein Kunde, dessen Scans dauerhaft
+        scheitern, taggenau frisch aus, und der Sensor bekam ein Datenalter
+        von null. Genau diesen Fall soll der Kanal melden.
+        """
+        alt = datetime.now(timezone.utc) - timedelta(hours=100)
+        kunde = self._customer(last_status="error",
+                               last_check_at=datetime.now(timezone.utc),
+                               last_success_at=alt)
+        from portal.scanner import data_age_hours
+
+        self.assertGreaterEqual(data_age_hours(kunde), 99)
 
     def test_an_expired_credential_is_an_error(self):
         self.assertEqual("error", self._status(self._customer(count_expired=1)))
@@ -191,3 +210,111 @@ class DashboardStatusTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+@needs_portal
+class SchemaMigrationTest(unittest.TestCase):
+    """
+    Eine neue Spalte an einer bestehenden Tabelle.
+
+    `create_all` legt nur fehlende Tabellen an. Eine neue Tabelle, wie
+    `api_keys`, ging deshalb gut. Die erste neue Spalte hätte jede Abfrage
+    darauf auflaufen lassen, und zwar erst im Betrieb beim Kunden.
+    """
+
+    def setUp(self):
+        handle, self.pfad = tempfile.mkstemp(suffix=".db")
+        os.close(handle)
+
+    def tearDown(self):
+        for endung in ("", "-wal", "-shm"):
+            try:
+                os.unlink(self.pfad + endung)
+            except OSError:
+                pass
+
+    def _neu_verbinden(self):
+        """Point the session at the throwaway database."""
+        import portal.db as db
+
+        db.Session.remove()
+        db._engine = None                                              # noqa: SLF001
+        db.init_engine("sqlite:///" + self.pfad.replace("\\", "/"))
+        return db
+
+    def test_a_column_missing_from_an_existing_table_is_added(self):
+        """Der Fall, der sonst erst beim Kunden aufgefallen wäre."""
+        import sqlalchemy
+
+        db = self._neu_verbinden()
+        db.create_all()
+
+        # Zustand vor der Erweiterung nachstellen
+        with db._engine.begin() as verbindung:                         # noqa: SLF001
+            verbindung.execute(sqlalchemy.text(
+                "ALTER TABLE customers DROP COLUMN last_success_at"))
+        spalten = {s["name"] for s in
+                   sqlalchemy.inspect(db._engine).get_columns("customers")}  # noqa: SLF001
+        self.assertNotIn("last_success_at", spalten)
+
+        db.create_all()
+        spalten = {s["name"] for s in
+                   sqlalchemy.inspect(db._engine).get_columns("customers")}  # noqa: SLF001
+        self.assertIn("last_success_at", spalten)
+
+    def test_existing_rows_survive_the_added_column(self):
+        """Eine Migration, die Daten verliert, wäre schlimmer als keine."""
+        import sqlalchemy
+
+        from portal.models import Customer, new_token
+
+        db = self._neu_verbinden()
+        db.create_all()
+        db.Session.add(Customer(key="alt", display_name="Alt AG",
+                                tenant_id="00000000-0000-0000-0000-0000000000aa",
+                                client_id="00000000-0000-0000-0000-0000000000bb",
+                                auth_type="secret", prtg_token=new_token(),
+                                min_days=42))
+        db.Session.commit()
+
+        with db._engine.begin() as verbindung:                         # noqa: SLF001
+            verbindung.execute(sqlalchemy.text(
+                "ALTER TABLE customers DROP COLUMN last_success_at"))
+        db.Session.remove()
+        db.create_all()
+
+        kunde = db.Session.query(Customer).filter_by(key="alt").one()
+        self.assertEqual("Alt AG", kunde.display_name)
+        self.assertEqual(42, kunde.min_days)
+        self.assertIsNone(kunde.last_success_at)
+
+    def test_running_it_twice_changes_nothing(self):
+        """Der Start darf beliebig oft passieren."""
+        db = self._neu_verbinden()
+        db.create_all()
+        db.create_all()
+        db.create_all()
+
+    def test_a_column_that_cannot_be_added_is_refused_loudly(self):
+        """
+        Eine Spalte ohne nullable liesse sich in SQLite nicht nachtragen.
+
+        Dann braucht es ein Migrationswerkzeug, und das soll beim Start
+        auffallen statt später an einer Abfrage.
+        """
+        import sqlalchemy
+
+        from portal.db import Base
+
+        db = self._neu_verbinden()
+        db.create_all()
+
+        tabelle = Base.metadata.tables["customers"]
+        pflicht = sqlalchemy.Column("pflichtfeld", sqlalchemy.String(8), nullable=False)
+        tabelle.append_column(pflicht)
+        try:
+            with self.assertRaises(RuntimeError) as gefangen:
+                db.create_all()
+            self.assertIn("pflichtfeld", str(gefangen.exception))
+        finally:
+            tabelle._columns.remove(pflicht)                           # noqa: SLF001

@@ -17,44 +17,59 @@ Sorte Abweichung, die niemandem auffaellt.
 """
 
 import re
+from datetime import timezone
 
 from portal.scanner import data_age_hours
 
 # Fehlerkennungen von Entra ID, nach denen im Rohtext gesucht wird. Microsoft
 # haengt sie an jede Ablehnung des Token-Endpunkts an, und sie sind stabiler
 # als der begleitende englische Satz.
+# Fehlerkennungen von Entra ID, nach denen im Rohtext gesucht wird. Microsoft
+# haengt sie an jede Ablehnung des Token-Endpunkts an, und sie sind stabiler
+# als der begleitende englische Satz.
+#
+# Die Texte nennen die haeufigste Ursache und lassen offen, was die Kennung
+# nicht hergibt. Ein zu enger Rat schickt jemanden in die falsche Richtung,
+# und das kostet mehr als gar kein Rat. Geprueft gegen die Fehlerreferenz von
+# Microsoft, siehe docs/PORTAL.md.
 AADSTS = {
     "AADSTS7000215": (
-        "Das hinterlegte Client Secret ist falsch oder wurde inzwischen erneuert.",
-        "Im Kundentenant ein neues Secret erzeugen und hier hinterlegen."),
+        "Das hinterlegte Client Secret wird abgelehnt.",
+        "Zuerst den hinterlegten Wert mit dem im Tenant vergleichen. Stimmt er "
+        "nicht mehr überein, ein neues Secret erzeugen und hier eintragen."),
     "AADSTS7000222": (
         "Das hinterlegte Client Secret ist abgelaufen.",
         "Im Kundentenant ein neues Secret erzeugen und hier hinterlegen."),
     "AADSTS700016": (
-        "Die App-Registrierung ist in diesem Tenant nicht vorhanden.",
-        "Client-ID prüfen. Wurde die Registrierung gelöscht oder liegt sie in "
-        "einem anderen Tenant?"),
+        "Die App-Registrierung ist in diesem Tenant nicht auffindbar.",
+        "Client-ID und Tenant-ID prüfen. Möglich ist auch, dass die "
+        "Zustimmung des Administrators nie erteilt oder wieder entzogen wurde."),
     "AADSTS700027": (
-        "Das hinterlegte Zertifikat passt nicht zu dem, was im Tenant hinterlegt ist.",
-        "Öffentlichen Teil des Zertifikats in der App-Registrierung erneuern."),
+        "Die Signatur der Anmeldung wurde abgelehnt.",
+        "Meist passt das hinterlegte Zertifikat nicht mehr zu dem in der "
+        "App-Registrierung. Beide vergleichen, bevor eines ersetzt wird."),
     "AADSTS90002": (
         "Der Tenant ist unbekannt.",
         "Tenant-ID prüfen."),
     "AADSTS500011": (
-        "Der Dienstprinzipal fehlt im Kundentenant.",
-        "Die Zustimmung des Administrators wurde nie erteilt oder wieder entzogen."),
+        "Der Dienstprinzipal der angeforderten Ressource fehlt in diesem Tenant.",
+        "Entweder wurde die Zustimmung nie erteilt, oder die Anfrage geht an "
+        "den falschen Tenant. Tenant-ID prüfen."),
     "AADSTS650057": (
         "Die App-Registrierung darf diese Ressource nicht anfordern.",
         "Berechtigung Application.Read.All als Anwendungsberechtigung setzen "
         "und Administratorzustimmung erteilen."),
 }
 
+AADSTS_MUSTER = re.compile(r"AADSTS(\d+)")
+
 # Fehler, die nicht am Token-Endpunkt entstehen, sondern beim Abruf selbst.
 GRAPH_MUSTER = [
     (re.compile(r"Graph HTTP 403"),
-     "Die Berechtigung reicht nicht aus.",
-     "Application.Read.All als Anwendungsberechtigung setzen und "
-     "Administratorzustimmung erteilen."),
+     "Microsoft Graph hat den Abruf abgelehnt.",
+     "Meist fehlt Application.Read.All als Anwendungsberechtigung samt "
+     "Administratorzustimmung. Es gibt weitere Gründe für eine Ablehnung, "
+     "deshalb den Meldungstext im Feld detail mitlesen."),
     (re.compile(r"Graph HTTP 429"),
      "Microsoft hat die Abfrage wegen zu vieler Anfragen gedrosselt.",
      "Der nächste Tageslauf versucht es erneut. Bei wiederholtem Auftreten die "
@@ -78,6 +93,17 @@ GRAPH_MUSTER = [
 ]
 
 
+def _als_utc(wert):
+    """
+    Treat a stored datetime as UTC when it comes back without a zone.
+
+    SQLite kennt keine Zeitzone. Ein Wert, den die Sitzung noch im Speicher
+    haelt, traegt seine Zone, derselbe Wert nach einem Neuladen nicht. Wer nur
+    den einen Fall testet, sieht den anderen nie.
+    """
+    return wert if wert.tzinfo else wert.replace(tzinfo=timezone.utc)
+
+
 def _befund(code, schwere, meldung, massnahme=None, **felder):
     """One finding: machine readable code, a sentence, optionally what to do."""
     eintrag = {"code": code, "severity": schwere, "message": meldung}
@@ -96,10 +122,14 @@ def erklaere_lauffehler(rohtext):
     """
     if not rohtext:
         return None
-    for kennung, (meldung, massnahme) in AADSTS.items():
-        if kennung in rohtext:
+    # Exakt suchen, nicht als Teilstring: "AADSTS70002150" enthaelt
+    # "AADSTS7000215" und bekaeme sonst dessen Erklaerung.
+    for treffer in AADSTS_MUSTER.findall(rohtext):
+        eintrag = AADSTS.get("AADSTS" + treffer)
+        if eintrag:
+            meldung, massnahme = eintrag
             return _befund("scan_failed", "error", meldung, massnahme,
-                           entra_code=kennung, detail=rohtext[:500])
+                           entra_code="AADSTS" + treffer, detail=rohtext[:500])
     for muster, meldung, massnahme in GRAPH_MUSTER:
         if muster.search(rohtext):
             return _befund("scan_failed", "error", meldung, massnahme,
@@ -144,7 +174,10 @@ def _ablaufende(credentials, kunde):
             _satz(namen,
                   "%s ist bereits abgelaufen.",
                   "%d Zugangsdaten sind bereits abgelaufen: %s."),
-            "Im Kundentenant erneuern. Was daran hängt, funktioniert bereits nicht mehr.",
+            "Im Kundentenant prüfen, ob das Zugangsdatum noch benutzt wird, und "
+            "es gegebenenfalls ersetzen. Ob etwas ausgefallen ist, lässt sich "
+            "von hier aus nicht sagen: die Anwendung kann bereits ein zweites, "
+            "gültiges Zugangsdatum verwenden.",
             count=len(abgelaufen), applications=namen))
     if kritisch:
         namen = _liste(kritisch)
@@ -221,7 +254,10 @@ def befunde(kunde, credentials, stale_hours):
     # hoert die Ueberwachung auf, ohne dass ein einzelner Kunde rot wird.
     if kunde.cert_not_after is not None:
         from portal.models import utcnow
-        rest = (kunde.cert_not_after - utcnow()).days
+        # SQLite gibt Datumswerte ohne Zeitzone zurueck, sobald das Objekt
+        # frisch geladen wird. Ohne diese Zeile stuerzt jede Kundenliste ab,
+        # bei der ein Kunde ein Zertifikat hinterlegt hat.
+        rest = (_als_utc(kunde.cert_not_after) - utcnow()).days
         if rest < 0:
             gefunden.append(_befund(
                 "own_certificate_expired", "error",
