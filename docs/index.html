@@ -104,12 +104,67 @@
   }
   .tag-a{background:var(--blue-light); color:var(--blue-dark)}
   .tag-b{background:var(--green-bg); color:var(--green-dark)}
+  .tag-c{background:#fdf0e2; color:#a35c00}
+  .three{display:grid; grid-template-columns:repeat(3,1fr); gap:26px; align-items:start;
+         margin-top:2rem}
+  .three>*{min-width:0}
+  @media (max-width:940px){ .three{grid-template-columns:1fr; gap:26px} }
   .card ul{margin:.8rem 0 0; padding-left:1.1rem; font-size:.94rem; color:var(--muted)}
   .card li{margin:.32rem 0}
   .card pre{
     background:var(--code-bg); color:#d7e4ef; border-radius:7px; padding:12px 14px;
-    font-size:.83rem; overflow-x:auto; margin:1rem 0 0;
+    font-size:.83rem; margin:1rem 0 0;
+    white-space:pre-wrap; overflow-wrap:anywhere;
   }
+
+  /* ---------- api ---------- */
+  .api{display:grid; grid-template-columns:1.05fr 1fr; gap:36px; align-items:start;
+       margin-top:2rem}
+  .api>*{min-width:0}
+  @media (max-width:880px){ .api{grid-template-columns:1fr} }
+  .endpoints-scroll{overflow-x:auto}
+  table.endpoints{width:100%; border-collapse:collapse; font-size:.86rem; margin-top:.4rem;
+                  min-width:430px}
+  table.endpoints th{
+    text-align:left; font-size:.72rem; letter-spacing:.06em; text-transform:uppercase;
+    color:var(--muted); font-weight:700; padding:0 10px 8px 0; border-bottom:1px solid var(--line);
+  }
+  table.endpoints td{padding:7px 10px 7px 0; border-bottom:1px solid var(--line);
+                     vertical-align:top}
+  table.endpoints td.verb{
+    font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-size:.78rem;
+    font-weight:700; color:var(--blue-dark); white-space:nowrap;
+  }
+  table.endpoints td.path{
+    font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-size:.78rem;
+    color:var(--fg);
+  }
+  table.endpoints td.what{color:var(--muted)}
+  /* Auf schmalen Schirmen ist eine vierspaltige Tabelle keine Tabelle mehr:
+     die Zweckspalte laege ausserhalb. Zwei Zeilen je Endpunkt statt dessen. */
+  @media (max-width:620px){
+    .endpoints-scroll{overflow-x:visible}
+    table.endpoints{min-width:0}
+    table.endpoints thead{display:none}
+    table.endpoints tr{
+      display:grid; grid-template-columns:auto 1fr; gap:2px 12px;
+      padding:11px 0; border-bottom:1px solid var(--line);
+    }
+    table.endpoints td{border:0; padding:0}
+    table.endpoints td.what{grid-column:1 / -1; margin-top:2px}
+  }
+  .scope{
+    display:inline-block; font-size:.68rem; font-weight:700; letter-spacing:.05em;
+    text-transform:uppercase; padding:2px 7px; border-radius:20px; white-space:nowrap;
+  }
+  .scope-r{background:var(--blue-light); color:var(--blue-dark)}
+  .scope-w{background:#fdf0e2; color:#a35c00}
+  .api pre.xml{white-space:pre-wrap; overflow-wrap:anywhere}
+  .promise{
+    border-left:3px solid var(--green); background:var(--green-bg); border-radius:0 8px 8px 0;
+    padding:16px 20px; margin-top:1.6rem; font-size:.94rem;
+  }
+  .promise strong{color:var(--green-dark)}
 
   /* ---------- sensor ---------- */
   .sensor{display:grid; grid-template-columns:1fr 1fr; gap:32px; align-items:center; margin-top:2rem}
@@ -167,7 +222,8 @@
     <nav class="nav">
       <a href="#why">Why</a>
       <a href="#sensor">PRTG</a>
-      <a href="#flavours">Two flavours</a>
+      <a href="#flavours">Flavours</a>
+      <a href="#api">API</a>
       <a href="https://github.com/benjaminmue/entra-secret-monitor">GitHub</a>
     </nav>
   </div>
@@ -271,13 +327,14 @@
 
 <section id="flavours">
   <div class="wrap">
-    <div class="kicker">Two flavours</div>
-    <h2>A handful of tenants, or a customer base</h2>
+    <div class="kicker">Three flavours</div>
+    <h2>A handful of tenants, a customer base, or no container at all</h2>
     <p class="sub">
-      Both ship from the same repository and share the same Graph code. Pick by how
-      many directories you look after and who needs to add one.
+      All three ship from the same repository and share the same Graph logic, so a
+      sensor keeps its channel names and history when you move between them. Pick by
+      how many directories you look after and who needs to add one.
     </p>
-    <div class="two">
+    <div class="three">
       <div class="card">
         <span class="tag tag-a">Classic service</span>
         <h3>Configured in a file, nothing to maintain</h3>
@@ -309,13 +366,112 @@
         </ul>
         <pre>docker compose -f docker-compose.portal.yml up -d</pre>
       </div>
+      <div class="card">
+        <span class="tag tag-c">PRTG script sensor</span>
+        <h3>No server of your own</h3>
+        <p class="sub" style="font-size:.94rem">
+          A PowerShell sensor that runs on the PRTG probe itself. Windows PowerShell
+          5.1, no modules, outbound 443 only. Right for a customer where nothing may
+          be hosted.
+        </p>
+        <ul>
+          <li>Nothing to deploy, nothing to keep patched</li>
+          <li>Same channel names and limits as the container</li>
+          <li>One tenant per sensor, no shared view</li>
+          <li>Every poll is a fresh Graph query</li>
+        </ul>
+        <pre>prtg\Get-EntraSecretExpiry.ps1</pre>
+      </div>
     </div>
     <figure>
-      <img src="assets/portal.webp" width="1600" height="1250"
-           alt="Portal dashboard listing five customer tenants with status, shortest remaining runtime, credential counts, time of last check and the daily scan slot.">
+      <img src="assets/portal.webp" width="1600" height="969"
+           alt="Portal dashboard listing six customer tenants with status, shortest remaining runtime, credential counts, time of last check and the daily scan slot.">
       <figcaption>
-        The portal view: five customers, two of them needing attention. A sensor
-        poll answers from the stored scan and never calls Microsoft Graph.
+        The portal view: six customers, one already past an expiry and one inside the
+        warning window. A sensor poll answers from the stored scan and never calls
+        Microsoft Graph.
+      </figcaption>
+    </figure>
+  </div>
+</section>
+
+<section class="alt" id="api">
+  <div class="wrap">
+    <div class="kicker">REST API</div>
+    <h2>Or let your own portal drive it</h2>
+    <p class="sub">
+      If you already run a customer portal, onboarding twice is work nobody asked for.
+      The portal exposes <code>/api/v1</code> so your system creates the customer,
+      triggers the scan, reads the remaining lifetimes and hands out the sensor URL,
+      all without anyone opening this UI.
+    </p>
+    <div class="api">
+      <div>
+        <div class="endpoints-scroll">
+        <table class="endpoints">
+          <thead>
+            <tr><th>Method</th><th>Path</th><th>Scope</th><th>What it does</th></tr>
+          </thead>
+          <tbody>
+            <tr><td class="verb">GET</td><td class="path">/customers</td>
+                <td><span class="scope scope-r">read</span></td>
+                <td class="what">Every customer with its summary</td></tr>
+            <tr><td class="verb">POST</td><td class="path">/customers</td>
+                <td><span class="scope scope-w">write</span></td>
+                <td class="what">Create one, with tenant id, client id and secret</td></tr>
+            <tr><td class="verb">PATCH</td><td class="path">/customers/&lt;key&gt;</td>
+                <td><span class="scope scope-w">write</span></td>
+                <td class="what">Change it, omitted fields stay put</td></tr>
+            <tr><td class="verb">POST</td><td class="path">/customers/&lt;key&gt;/check</td>
+                <td><span class="scope scope-w">write</span></td>
+                <td class="what">Scan now, the answer carries the result</td></tr>
+            <tr><td class="verb">GET</td><td class="path">/customers/&lt;key&gt;/credentials</td>
+                <td><span class="scope scope-r">read</span></td>
+                <td class="what">Its credentials, shortest runtime first</td></tr>
+            <tr><td class="verb">GET</td><td class="path">/customers/&lt;key&gt;/urls</td>
+                <td><span class="scope scope-r">read</span></td>
+                <td class="what">The sensor URLs to paste into PRTG</td></tr>
+            <tr><td class="verb">POST</td><td class="path">/customers/&lt;key&gt;/token</td>
+                <td><span class="scope scope-w">write</span></td>
+                <td class="what">New sensor token, the old URL goes quiet</td></tr>
+            <tr><td class="verb">GET</td><td class="path">/openapi.json</td>
+                <td><span class="scope scope-r">read</span></td>
+                <td class="what">Generated description, feed it to a client generator</td></tr>
+          </tbody>
+        </table>
+        </div>
+      </div>
+      <div>
+        <h3>Keys, not passwords</h3>
+        <p class="sub" style="font-size:.94rem">
+          Issued in the portal by an administrator, shown once, stored as an Argon2
+          hash. Two scopes: <strong>read</strong> sees customers, credentials and URLs,
+          <strong>write</strong> additionally creates, changes, scans and rotates.
+          Revoking one takes effect on the next request, and every use is in the audit
+          trail.
+        </p>
+        <pre class="xml"><span class="c"># create a customer</span>
+curl -X POST https://portal/api/v1/customers \
+  -H <span class="v">"Authorization: Bearer esm_..."</span> \
+  -H <span class="v">"Content-Type: application/json"</span> \
+  -d <span class="v">'{"key":"musterag",
+       "display_name":"Muster AG",
+       "tenant_id":"...","client_id":"...",
+       "client_secret":"..."}'</span></pre>
+        <div class="promise">
+          <strong>Credentials go in, never out.</strong> No response carries a client
+          secret or a private key, only whether one is stored and, for a certificate,
+          its thumbprint and expiry. A test asserts that against the database and
+          against every response that renders a customer.
+        </div>
+      </div>
+    </div>
+    <figure>
+      <img src="assets/api.webp" width="1600" height="1712"
+           alt="Portal settings page for the API: a form to issue a key with name and scope, the list of issued keys with prefix, scope, status and last use, and a table of the eleven available endpoints with method, path, scope and purpose.">
+      <figcaption>
+        The settings page lists the endpoints of the running instance, so whoever
+        writes the integration does not have to read the source.
       </figcaption>
     </figure>
   </div>
