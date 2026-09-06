@@ -13,7 +13,7 @@ from flask import (Blueprint, abort, flash, redirect, render_template, request, 
 from flask_login import current_user, login_required
 from sqlalchemy import select
 
-from portal import audit, crypto, scheduler
+from portal import audit, crypto, ratelimit, scheduler
 from portal.db import Session
 from portal.forms import ConfirmForm, CustomerForm
 from portal.models import (AUTH_CERT, CheckRun, CredentialSnapshot, Customer,
@@ -188,6 +188,17 @@ def force(customer_id):
     form = ConfirmForm()
     if not form.validate_on_submit():
         abort(400)
+    # Dieselbe Grenze wie an der Schnittstelle. Dahinter steht in beiden Faellen
+    # eine echte Abfrage im Tenant des Kunden, und ein Knopf laesst sich
+    # genauso oft druecken wie ein Endpunkt aufrufen.
+    erlaubt, warten = ratelimit.pruefe(
+        ratelimit.Grenze("check", cfg.api_check_per_hour, 3600), customer.key)
+    if not erlaubt:
+        flash("Für diesen Kunden wurden zu viele Prüfungen ausgelöst. Der Tagesplan "
+              "läuft weiter, die nächste manuelle Prüfung ist in %d Sekunden möglich."
+              % warten, "error")
+        return redirect(url_for("customers.detail", customer_id=customer.id))
+
     try:
         status, error = scheduler.force_check(customer.id, cfg.encryption_key,
                                               current_user.username, cfg.history_runs)

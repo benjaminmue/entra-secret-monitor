@@ -153,6 +153,7 @@ FEHLERANTWORTEN = {
     "401": {"$ref": "#/components/responses/Unauthorized"},
     "403": {"$ref": "#/components/responses/Forbidden"},
     "404": {"$ref": "#/components/responses/NotFound"},
+    "429": {"$ref": "#/components/responses/RateLimited"},
 }
 
 SCHLUESSEL_PARAMETER = {
@@ -332,6 +333,13 @@ def build(base_url, instance_name, endpunkte):
                                      {"$ref": "#/components/schemas/Error"}),
                 "ValidationFailed": _antwort("Eingaben unvollständig oder unzulässig",
                                              {"$ref": "#/components/schemas/Error"}),
+                "RateLimited": dict(
+                    _antwort("Zu viele Anfragen. Der Kopf Retry-After nennt die "
+                             "Wartezeit in Sekunden.",
+                             {"$ref": "#/components/schemas/Error"}),
+                    headers={"Retry-After": {
+                        "description": "Sekunden bis zum nächsten erlaubten Aufruf.",
+                        "schema": {"type": "integer"}}}),
             },
         },
     }

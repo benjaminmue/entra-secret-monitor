@@ -1,0 +1,35 @@
+# gitleaks fuer dieses Repo.
+#
+# Bewusst nur die mitgelieferten Regeln, ohne eigene Kopien davon: eine
+# nachgebaute Regel bleibt auf dem Stand, auf dem sie abgeschrieben wurde, und
+# faellt bei der naechsten Verbesserung stillschweigend zurueck. Ausnahmen
+# stehen als `gitleaks:allow` neben der Zeichenkette oder, fuer bereits
+# geschriebene Commits, mit Begruendung in .gitleaksignore.
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Platzhalter aus Dokumentation und Beispielen"
+regexes = [
+  # Beispiel-GUIDs in README, Anleitung und OpenAPI
+  '''00000000-0000-0000-0000-0000000000\d\d''',
+  '''11111111-1111-1111-1111-111111111111''',
+  # Der abgekuerzte Schluessel in den curl-Beispielen
+  '''esm_xxxxxxxx_''',
+]
+
+
+# Die mitgelieferten Regeln kennen Entra Client Secrets nicht. Nachgemessen:
+# ein Wert der Form `Rt8Q~aBcDeF...` geht durch jede Standardregel hindurch.
+# Das ist ausgerechnet die Geheimnisart, die dieses Projekt verarbeitet.
+#
+# Erkannt wird die Zuweisung, nicht der Wert allein: ein blosses Tildemuster
+# ohne Kontext meldet jede Pfadangabe mit Heimatverzeichnis.
+[[rules]]
+id = "entra-client-secret"
+description = "Entra ID client secret value"
+regex = '''(?i)secret[a-z0-9_]*["']?\s*[:=]\s*["']?([a-zA-Z0-9_.~-]{2,10}~[a-zA-Z0-9_.~-]{25,50})'''
+secretGroup = 1
+keywords = ["secret"]
+

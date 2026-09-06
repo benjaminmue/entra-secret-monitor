@@ -1,4 +1,10 @@
 # Portal (v2) dependencies. The classic env driven service in app/ stays stdlib only.
+#
+# Upper bounds keep a major release from arriving unannounced. They must never
+# sit below a version that carries a security fix: the cap on cryptography was
+# <46 while every published fix needed 46 or newer, which quietly made the
+# advisories unreachable. Check with `pip-audit -r requirements-portal.txt`
+# before raising or lowering a bound.
 Flask>=3.0,<4.0
 Flask-Login>=0.6,<0.7
 Flask-WTF>=1.2,<2.0
@@ -6,6 +12,6 @@ SQLAlchemy>=2.0,<3.0
 argon2-cffi>=23.1,<26.0
 pyotp>=2.9,<3.0
 qrcode>=7.4,<9.0
-cryptography>=42,<46
+cryptography>=50.0.1,<51
 waitress>=3.0,<4.0
 email-validator>=2.1,<3.0

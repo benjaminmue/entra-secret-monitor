@@ -43,6 +43,10 @@ class PortalConfig:
     cookie_secure: bool = True
     login_max_attempts: int = 5
     lockout_minutes: int = 15
+    api_rate_per_minute: int = 120
+    api_key_attempts_per_minute: int = 10
+    api_anon_attempts_per_minute: int = 60
+    api_check_per_hour: int = 12
     password_min_length: int = 12
 
     # Scan scheduling
@@ -107,6 +111,12 @@ def load_config(env=None):
         cookie_secure=as_bool(env.get("PORTAL_COOKIE_SECURE"), True),
         login_max_attempts=as_int(env.get("PORTAL_LOGIN_MAX_ATTEMPTS"), 5),
         lockout_minutes=as_int(env.get("PORTAL_LOCKOUT_MINUTES"), 15),
+        api_rate_per_minute=as_int(env.get("PORTAL_API_RATE_PER_MINUTE"), 120),
+        api_key_attempts_per_minute=as_int(
+            env.get("PORTAL_API_KEY_ATTEMPTS_PER_MINUTE"), 10),
+        api_anon_attempts_per_minute=as_int(
+            env.get("PORTAL_API_ANON_ATTEMPTS_PER_MINUTE"), 60),
+        api_check_per_hour=as_int(env.get("PORTAL_API_CHECK_PER_HOUR"), 12),
         password_min_length=as_int(env.get("PORTAL_PASSWORD_MIN_LENGTH"), 12),
         scheduler_enabled=as_bool(env.get("PORTAL_SCHEDULER"), True),
         tick_seconds=as_int(env.get("PORTAL_TICK_SECONDS"), 60),
@@ -127,6 +137,14 @@ def load_config(env=None):
     if cfg.password_min_length < 12:
         cfg.password_min_length = 12
         cfg.warnings.append("PORTAL_PASSWORD_MIN_LENGTH unter 12, auf 12 angehoben")
+    for feld in ("api_rate_per_minute", "api_key_attempts_per_minute",
+                 "api_anon_attempts_per_minute", "api_check_per_hour"):
+        if getattr(cfg, feld) < 1:
+            # Sonst faellt der erste Aufruf der Schnittstelle mit einem
+            # IndexError um, statt beim Start eine lesbare Meldung zu geben.
+            raise ConfigError("PORTAL_%s muss mindestens 1 sein, ist %r"
+                              % (feld.upper(), getattr(cfg, feld)))
+
     if not cfg.base_url:
         cfg.warnings.append("PORTAL_BASE_URL nicht gesetzt: die angezeigten Sensor-URLs "
                             "stammen dann aus dem Host-Header des Aufrufers und lassen "

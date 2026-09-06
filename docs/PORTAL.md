@@ -256,6 +256,7 @@ den Menschen davor:
 | `not_found` | 404 | Kein Kunde mit diesem Kurznamen |
 | `duplicate` | 409 | Kurzname bereits vergeben |
 | `busy` | 409 | Ein anderer Scan blockiert länger als erlaubt |
+| `rate_limited` | 429 | Zu viele Anfragen, `Retry-After` nennt die Wartezeit |
 | `validation_failed` | 422 | `fields` nennt Feld und Grund |
 | `invalid_credential` | 422 | Zertifikat und Schlüssel passen nicht zusammen |
 
@@ -280,6 +281,29 @@ Ziffer und Sonderzeichen. Zusätzlich abgelehnt werden Passwörter, die den
 Benutzernamen enthalten, auf einem leicht erratbaren Wortstamm aufbauen oder ein
 Zeichen mehr als dreimal hintereinander wiederholen. Neue Konten erhalten ein
 generiertes Einmalpasswort, das genau einmal angezeigt wird.
+
+**Drosselung.** Vier Grenzen, weil vier verschiedene Dinge schiefgehen können.
+Das Raten des Geheimnisses zu einem bekannten Schlüssel zählt **je Präfix**,
+voreingestellt zehn pro Minute: das ist der Pfad, auf dem ein Argon2-Vergleich
+anfällt. Das Durchprobieren wechselnder Präfixe zählt je Adresse,
+voreingestellt sechzig pro Minute; jeder einzelne Versuch kostet dort nur eine
+indizierte Abfrage, die Menge ist trotzdem Last.
+
+Beide zählen ausschliesslich Fehlversuche und geben ihren Eintrag zurück,
+sobald die Authentifizierung gelingt. **Ein gültiger Schlüssel wird also nie
+durch fremde Fehlversuche gesperrt**. Nach der Adresse zu zählen hatte genau
+diesen Fehler: hinter einem Reverse Proxy teilen sich alle Aufrufer eine
+Adresse. Anfragen zählen
+je Schlüssel, voreingestellt 120 pro Minute. Und `POST /customers/<key>/check`
+zählt je Kunde, voreingestellt zwölf pro Stunde, weil dahinter eine echte
+Abfrage im Tenant des Kunden steht. Eine 429-Antwort trägt `Retry-After`.
+Dieselbe Grenze je Kunde gilt für den Prüfknopf der Oberfläche: ein Knopf
+lässt sich so oft drücken wie ein Endpunkt aufrufen.
+
+Einstellbar über `PORTAL_API_KEY_ATTEMPTS_PER_MINUTE`,
+`PORTAL_API_ANON_ATTEMPTS_PER_MINUTE`, `PORTAL_API_RATE_PER_MINUTE` und
+`PORTAL_API_CHECK_PER_HOUR`. Ein Wert unter 1 wird beim Start abgelehnt. Der Zähler liegt
+im Prozessspeicher, siehe Grenzen.
 
 **API-Schlüssel.** Argon2id wie bei Passwörtern, nachgeschlagen über den Präfix und
 verglichen über den Hash. Der Bereich `read` kann nichts verändern, jeder Schreibversuch
@@ -359,7 +383,8 @@ Bereichstrennung, Eingabeprüfung und der Zusage, dass kein Zugangsdatum herausk
 ## Grenzen
 
 - Ein Prozess, ein Scheduler. Zwei Instanzen auf derselben Datenbank würden Kunden
-  doppelt prüfen. Für Hochverfügbarkeit müsste die Fälligkeitsprüfung eine Sperre in
+  doppelt prüfen. Aus demselben Grund liegt der Drosselungszähler im
+  Prozessspeicher: er überlebt keinen Neustart und zählt nicht über Instanzen. Für Hochverfügbarkeit müsste die Fälligkeitsprüfung eine Sperre in
   der Datenbank setzen.
 - SQLite genügt für 50 Kunden bequem. Der `PORTAL_DATABASE_URL` nimmt aber auch
   PostgreSQL, dann zusätzlich `psycopg` installieren.

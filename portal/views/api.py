@@ -25,7 +25,7 @@ from flask import Blueprint, g, jsonify, request, url_for
 from flask_login import current_user
 from sqlalchemy import select
 
-from portal import audit, crypto, openapi, scheduler, security
+from portal import audit, crypto, openapi, ratelimit, scheduler, security
 from portal.db import Session
 from portal.forms import GUID, KEY_PATTERN
 from portal.models import (API_SCOPE_WRITE, AUTH_CERT, AUTH_SECRET, ApiKey,
@@ -68,6 +68,65 @@ ENDPUNKTE = [
     {"methode": "POST", "pfad": "/api/v1/customers/<key>/token", "bereich": "write",
      "zweck": "Neues Sensor-Token, die bisherige URL liefert danach nichts mehr"},
 ]
+
+
+# --------------------------------------------------------------------------
+# Drosselung
+# --------------------------------------------------------------------------
+
+# Drei Grenzen, weil drei verschiedene Dinge schiefgehen koennen: jemand
+# probiert Schluessel durch, ein fehlerhafter Aufrufer haemmert in einer
+# Schleife, oder eine Pruefung wird so oft ausgeloest, dass der Kundentenant
+# die Last sieht. Eine einzige Zahl wuerde entweder das Durchprobieren
+# erlauben oder den normalen Betrieb behindern.
+
+def _grenzen():
+    """Build the three limits from the running configuration."""
+    cfg = config()
+    return (
+        ratelimit.Grenze("api", cfg.api_rate_per_minute, 60),
+        ratelimit.Grenze("apikey", cfg.api_key_attempts_per_minute, 60),
+        ratelimit.Grenze("check", cfg.api_check_per_hour, 3600),
+        ratelimit.Grenze("anon", cfg.api_anon_attempts_per_minute, 60),
+    )
+
+
+def _praefix(roh):
+    """The lookup prefix of a presented key, or empty when it has no shape."""
+    teile = (roh or "").split("_", 2)
+    return teile[1][:16] if len(teile) == 3 and teile[0] == "esm" else ""
+
+
+def _fehlversuch_kennung(roh):
+    """
+    Identify what a failed authentication is counted against.
+
+    Bewusst der Praefix und nicht die Adresse. Der Praefix bestimmt, ob
+    ueberhaupt ein Argon2-Vergleich anfaellt: ohne passenden Praefix ist die
+    Abfrage eine indizierte Suche ohne Treffer und kostet nichts. Wer den
+    Praefix eines Schluessels kennt und dessen Geheimnis raten will, laeuft
+    damit gegen genau diesen Zaehler.
+
+    Nach der Adresse zu zaehlen waere hier falsch: hinter einem Reverse Proxy
+    teilen sich alle Aufrufer eine Adresse, und zehn Fehlversuche eines
+    Dritten wuerden das Cloudportal aussperren. Genau das ist in der Pruefung
+    aufgefallen.
+
+    Was bleibt: wer den Praefix eines Schluessels kennt, kann genau diesen
+    Schluessel fuer die Dauer des Fensters sperren. Das ist dieselbe Abwaegung
+    wie beim Kontologin, wo `login_max_attempts` das Konto sperrt. Der
+    Wirkungskreis ist ein Schluessel, nicht die Instanz, und ein Ersatz ist
+    in einer Minute ausgestellt.
+    """
+    praefix = _praefix(roh)
+    return "prefix:%s" % praefix if praefix else "form:ungueltig"
+
+
+def zu_schnell(wartezeit, meldung):
+    """One 429 with the header a well behaved client honours."""
+    antwort = jsonify({"error": {"code": "rate_limited", "message": meldung}})
+    antwort.headers["Retry-After"] = str(wartezeit)
+    return antwort, 429
 
 
 # --------------------------------------------------------------------------
@@ -117,42 +176,95 @@ def finde_schluessel(roh):
     return eintrag
 
 
+def authentifiziere(schreibend=False):
+    """
+    Resolve and authorise the presented key, or return a ready error response.
+
+    Gibt (eintrag, fehlerantwort) zurueck, genau eines davon gefuellt. Als
+    eigene Funktion und nicht nur im Dekorator, weil /openapi.json ebenfalls
+    einen Schluessel annimmt: als der Weg dort an der Drosselung vorbeilief,
+    liess sich der Argon2-Vergleich ueber diese eine Route unbegrenzt
+    ausloesen, waehrend jede andere Route laengst 429 lieferte.
+    """
+    allgemein, versuche, _, anonym = _grenzen()
+    roh = schluessel_aus_anfrage()
+    if not roh:
+        return None, fehler(401, "unauthenticated",
+                            "Kein API-Schlüssel. Erwartet wird der Kopf "
+                            "'Authorization: Bearer <schlüssel>'.")
+
+    # Zwei Zaehler, weil zwei verschiedene Angriffe dahinterstehen. Der
+    # Praefixzaehler bremst das Raten des Geheimnisses zu einem bekannten
+    # Schluessel, also den teuren Argon2-Pfad. Der Adresszaehler bremst das
+    # Durchprobieren wechselnder Praefixe, das je Versuch nur eine indizierte
+    # Abfrage kostet, in der Menge aber trotzdem Last ist. Beide zaehlen nur
+    # Fehlversuche, deshalb kann keiner von beiden einen Aufrufer aussperren,
+    # der einen gueltigen Schluessel mitschickt.
+    adresse = "ip:%s" % audit.client_ip(config().trust_proxy)
+    erlaubt, warten = ratelimit.pruefe(anonym, adresse)
+    if not erlaubt:
+        return None, zu_schnell(warten, "Zu viele fehlgeschlagene Anfragen von "
+                                        "dieser Adresse. Bitte %d Sekunden "
+                                        "warten." % warten)
+
+    kennung = _fehlversuch_kennung(roh)
+    # Ein einziger, atomarer Aufruf: nachsehen und zaehlen in einem Schritt,
+    # damit nebenlaeufige Versuche nicht gemeinsam durch eine Vorpruefung
+    # rutschen. Gezaehlt wird der Versuch, freigegeben wird er unten wieder,
+    # wenn der Schluessel stimmt.
+    erlaubt, warten = ratelimit.pruefe(versuche, kennung)
+    if not erlaubt:
+        return None, zu_schnell(warten, "Zu viele fehlgeschlagene Anmeldungen für "
+                                        "diesen Schlüssel. Bitte %d Sekunden "
+                                        "warten." % warten)
+
+    eintrag = finde_schluessel(roh)
+    if eintrag is None:
+        # Nur mit passendem Praefix protokolliert. Sonst schriebe jeder
+        # Portscanner, der /api/v1 anfaesst, eine Zeile ins Protokoll.
+        if _praefix(roh):
+            audit.log(Session, "apikey.rejected", actor="api",
+                      target=_praefix(roh), success=False,
+                      detail="Unbekannter oder widerrufener Schlüssel",
+                      trust_proxy=config().trust_proxy)
+        return None, fehler(401, "invalid_key",
+                            "Der API-Schlüssel ist unbekannt oder widerrufen.")
+
+    if schreibend and not eintrag.may_write:
+        audit.log(Session, "apikey.denied", actor="apikey:%s" % eintrag.name,
+                  target=request.path, success=False,
+                  detail="Schreibzugriff mit lesendem Schlüssel",
+                  trust_proxy=config().trust_proxy)
+        return None, fehler(403, "read_only", "Dieser Schlüssel darf nur lesen.")
+
+    # Der Schluessel stimmt: der eben gezaehlte Versuch war keiner. Ohne diese
+    # Rueckgabe verbrauchte ein fleissiger, korrekter Aufrufer sein eigenes
+    # Fehlerkontingent und sperrte sich nach zehn Aufrufen selbst aus.
+    ratelimit.gib_frei(versuche, kennung)
+    ratelimit.gib_frei(anonym, adresse)
+
+    eintrag.last_used_at = utcnow()
+    Session.commit()
+
+    erlaubt, warten = ratelimit.pruefe(allgemein, "key:%s" % eintrag.prefix)
+    if not erlaubt:
+        return None, zu_schnell(warten, "Zu viele Anfragen. Bitte %d Sekunden "
+                                        "warten." % warten)
+    return eintrag, None
+
+
 def benoetigt_schluessel(schreibend=False):
     """
     Decorator: require a valid API key, optionally one that may write.
 
-    Setzt g.api_key, damit die Sicht dahinter weiss, wer aufgerufen hat, und
-    schreibt den Zeitpunkt der letzten Nutzung fort. Das ist die einzige
-    Stelle, an der ein Schluessel Spuren hinterlaesst.
+    Setzt g.api_key, damit die Sicht dahinter weiss, wer aufgerufen hat.
     """
     def dekorator(sicht):
         @wraps(sicht)
         def huelle(*args, **kwargs):
-            roh = schluessel_aus_anfrage()
-            if not roh:
-                return fehler(401, "unauthenticated",
-                              "Kein API-Schlüssel. Erwartet wird der Kopf "
-                              "'Authorization: Bearer <schlüssel>'.")
-            eintrag = finde_schluessel(roh)
-            if eintrag is None:
-                # Nur mit passendem Praefix protokolliert. Sonst schriebe jeder
-                # Portscanner, der /api/v1 anfaesst, eine Zeile ins Protokoll.
-                if roh.startswith("esm_"):
-                    audit.log(Session, "apikey.rejected", actor="api",
-                              target=roh.split("_")[1][:16], success=False,
-                              detail="Unbekannter oder widerrufener Schlüssel",
-                              trust_proxy=config().trust_proxy)
-                return fehler(401, "invalid_key",
-                              "Der API-Schlüssel ist unbekannt oder widerrufen.")
-            if schreibend and not eintrag.may_write:
-                audit.log(Session, "apikey.denied", actor="apikey:%s" % eintrag.name,
-                          target=request.path, success=False,
-                          detail="Schreibzugriff mit lesendem Schlüssel",
-                          trust_proxy=config().trust_proxy)
-                return fehler(403, "read_only",
-                              "Dieser Schlüssel darf nur lesen.")
-            eintrag.last_used_at = utcnow()
-            Session.commit()
+            eintrag, antwort = authentifiziere(schreibend)
+            if antwort is not None:
+                return antwort
             g.api_key = eintrag
             return sicht(*args, **kwargs)
         return huelle
@@ -483,10 +595,10 @@ def openapi_document():
     Einstellungsseite heraus auf, und beide brauchen dasselbe Dokument. Sie
     enthaelt keine Daten, nur die Form der Schnittstelle.
     """
-    if not current_user.is_authenticated and finde_schluessel(
-            schluessel_aus_anfrage() or "") is None:
-        return fehler(401, "unauthenticated",
-                      "Weder ein API-Schlüssel noch eine angemeldete Sitzung.")
+    if not current_user.is_authenticated:
+        _, antwort = authentifiziere()
+        if antwort is not None:
+            return antwort
     return jsonify(openapi.build(base_url(), config().instance_name, ENDPUNKTE))
 
 
@@ -626,6 +738,16 @@ def kunde_pruefen(key):
     kunde = hole_kunde(key)
     if kunde is None:
         return fehler(404, "not_found", "Kein Kunde mit diesem Schlüssel.")
+
+    # Eigene, engere Grenze je Kunde: hinter diesem Aufruf steht eine echte
+    # Abfrage im Tenant des Kunden, nicht nur Arbeit im Portal.
+    erlaubt, warten = ratelimit.pruefe(_grenzen()[2], key)
+    if not erlaubt:
+        return zu_schnell(warten, "Für diesen Kunden wurden zu viele Prüfungen "
+                                  "ausgelöst. Der Tagesplan läuft weiter, die "
+                                  "nächste manuelle Prüfung ist in %d Sekunden "
+                                  "möglich." % warten)
+
     cfg = config()
     try:
         status, meldung = scheduler.force_check(

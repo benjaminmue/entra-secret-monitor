@@ -1,0 +1,147 @@
+# Das Sicherheitsgate als Pflichtlauf.
+#
+# Global formulierte Regeln steuern, wie gearbeitet wird; durchsetzbar wird
+# eine Pruefung erst hier und ueber den Branch-Schutz. Was sich automatisieren
+# laesst, laeuft in diesem Workflow. Was Urteil braucht (Geschaeftslogik,
+# Berechtigungsmodell, Angriffstests), steht in docs/SECURITY-GATE.md und wird
+# vor einem Release von Hand nachgezogen.
+
+name: Security gate
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+  # Aufrufbar aus dem Veroeffentlichungslauf, damit kein Abbild entsteht,
+  # ohne dass das Gate gruen war.
+  workflow_call:
+  schedule:
+    # Montags früh: neue Advisories betreffen Abhaengigkeiten, die sich seit
+    # dem letzten Commit nicht geaendert haben. Ohne diesen Lauf faellt das
+    # erst beim naechsten Push auf, und der kann Wochen entfernt sein.
+    - cron: "17 5 * * 1"
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    name: Testsuite
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Ohne Extras, reine Standardbibliothek
+        # Der Dienst in app/ darf keine Fremdpakete brauchen. Laeuft zuerst und
+        # in eigener Umgebung, weil ein installiertes Extra den Beweis entwertet.
+        run: PYTHONPATH=app python -m unittest discover -s tests -t .
+
+      - name: Extras installieren
+        run: pip install -r requirements-portal.txt
+
+      - name: Vollstaendig, mit Portal
+        shell: bash
+        # Die Zahl uebersprungener Tests muss null sein: der needs_portal-Marker
+        # ueberspringt sonst die halbe Suite und der Lauf sieht gruen aus, ohne
+        # eine einzige Portal-Zusicherung geprueft zu haben.
+        run: |
+          # Ohne pipefail meldet die Pipe den Erfolg von tee, nicht den von
+          # unittest: eine fehlgeschlagene Testsuite waere gruen durchgelaufen.
+          set -o pipefail
+          PYTHONPATH=app python -m unittest discover -s tests -t . 2>&1 | tee /tmp/tests.log
+          if grep -qE "skipped=[1-9]" /tmp/tests.log; then
+            echo "::error::Tests wurden uebersprungen, obwohl die Extras installiert sind"
+            exit 1
+          fi
+
+  secrets:
+    name: Geheimnisse
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0          # gitleaks braucht die ganze History
+
+      - name: gitleaks installieren
+        run: |
+          VERSION=8.30.1
+          curl -sSL "https://github.com/gitleaks/gitleaks/releases/download/v${VERSION}/gitleaks_${VERSION}_linux_x64.tar.gz" \
+            | tar -xz -C /usr/local/bin gitleaks
+          gitleaks version
+
+      - name: gitleaks ueber die ganze History
+        # Direkt aufgerufen statt ueber die Action: die begrenzt Push- und
+        # PR-Laeufe auf den Commitbereich des Ereignisses. Ein Geheimnis, das
+        # in einem aelteren Commit steckt, faellt dabei nie auf.
+        run: gitleaks git . --config .gitleaks.toml --redact --exit-code 1
+
+      - name: gitleaks ueber den Arbeitsbaum
+        run: gitleaks dir . --config .gitleaks.toml --redact --exit-code 1
+
+      - name: Keine Umgebungsdatei im Repo
+        # Deterministisch statt heuristisch: gitleaks erkennt einen Entra-Wert
+        # nur ueber ein Muster, eine versehentlich eingecheckte .env erkennt
+        # dieser Schritt immer.
+        run: |
+          treffer=$(git ls-files | grep -E '(^|/)\.env($|\.)' | grep -vE '\.example$' || true)
+          if [ -n "$treffer" ]; then
+            echo "::error::Umgebungsdateien im Repo: $treffer"
+            exit 1
+          fi
+
+      - name: Keine Schluessel- oder Zertifikatsdateien im Repo
+        run: |
+          treffer=$(git ls-files | grep -iE '\.(pem|key|pfx|p12|crt|jks|keystore)$' || true)
+          if [ -n "$treffer" ]; then
+            echo "::error::Schluesselmaterial im Repo: $treffer"
+            exit 1
+          fi
+
+  dependencies:
+    name: Abhaengigkeiten
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: pip-audit
+        # Bricht den Lauf ab, wenn eine Abhaengigkeit eine bekannte Luecke hat.
+        # Ein Fund wird bewertet, nicht blind hochgezogen: die Obergrenzen in
+        # requirements-portal.txt duerfen aber nie unter einer Fassung liegen,
+        # die einen Fix traegt. Genau das war der Fall, als cryptography auf
+        # <46 stand und jeder veroeffentlichte Fix 46 oder neuer verlangte.
+        run: |
+          pip install pip-audit
+          pip-audit -r requirements-portal.txt --strict
+
+  image:
+    name: Abbild
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Portal-Abbild bauen
+        run: docker build -f Dockerfile.portal -t portal-pruefung:ci .
+
+      - name: Laeuft nicht als root
+        run: |
+          nutzer=$(docker run --rm portal-pruefung:ci id -u)
+          if [ "$nutzer" = "0" ]; then
+            echo "::error::Das Abbild startet als root"
+            exit 1
+          fi
+          echo "uid im Abbild: $nutzer"
+
+      - name: Trivy gegen das Abbild
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: portal-pruefung:ci
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: "1"

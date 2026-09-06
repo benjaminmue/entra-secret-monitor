@@ -55,8 +55,12 @@ class HealthProbeTest(unittest.TestCase):
 class ConfigLoaderTest(unittest.TestCase):
     """What the portal refuses to start with, and what it merely warns about."""
 
-    BASE = {"PORTAL_SECRET_KEY": "x" * 40,
-            "PORTAL_ENCRYPTION_KEY": "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="}
+    # Base64 von "0123456789abcdef0123456789abcdef": 32 Bytes der richtigen
+    # Laenge, damit der Loader zufrieden ist, und offensichtlich kein echter
+    # Schluessel.
+    BASE = {"PORTAL_SECRET_KEY": "x" * 40,                             # gitleaks:allow
+            "PORTAL_ENCRYPTION_KEY":
+                "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="}        # gitleaks:allow
 
     def test_missing_keys_are_reported_with_a_usable_hint(self):
         from portal.config import ConfigError, load_config

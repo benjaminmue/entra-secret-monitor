@@ -11,7 +11,16 @@ env:
   IMAGE_NAME: ${{ github.repository }}
 
 jobs:
+  gate:
+    permissions:
+      contents: read
+    # Ohne diese Abhaengigkeit liefe der Veroeffentlichungslauf am Gate vorbei,
+    # auch bei einem Tag und bei manueller Ausloesung. Das Gate waere dann eine
+    # Beschreibung und keine Bedingung.
+    uses: ./.github/workflows/security.yml
+
   build:
+    needs: gate
     runs-on: ubuntu-latest
     permissions:
       contents: read

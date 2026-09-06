@@ -74,13 +74,16 @@ class ApiTests(unittest.TestCase):
             pass
 
     def setUp(self):
-        """Start every test from an empty customer table."""
+        """Start every test from an empty customer table and a clear limiter."""
+        from portal import ratelimit
         from portal.db import Session
         from portal.models import Customer
 
         for kunde in Session.query(Customer).all():
             Session.delete(kunde)
         Session.commit()
+        # Sonst misst ein spaeterer Test die Drosselung des frueheren.
+        ratelimit.zuruecksetzen()
 
     # ------------------------------------------------------------------
     # Hilfen
@@ -1005,3 +1008,360 @@ class ApiKeyAdministrationTests(unittest.TestCase):
         finally:
             konto.role = ROLE_ADMIN
             Session.commit()
+
+
+@needs_portal
+class RateLimitTests(unittest.TestCase):
+    """
+    Die Drosselung der Schnittstelle.
+
+    Sie kam aus einem Sicherheitsdurchgang: ein Schlüssel liess sich unbegrenzt
+    durchprobieren, und `/check` löste bei jedem Aufruf eine Graph-Abfrage im
+    Kundentenant aus. Beides ohne Bremse.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        from tests.test_portal import build_app
+
+        cls.app, cls.db_path = build_app()
+        cls.client = cls.app.test_client()
+        cls.context = cls.app.app_context()
+        cls.context.push()
+
+        from portal import security
+        from portal.db import Session
+        from portal.models import API_SCOPE_READ, API_SCOPE_WRITE, ApiKey, new_api_key
+
+        cls.keys = {}
+        for name, scope in (("schreibend", API_SCOPE_WRITE), ("lesend", API_SCOPE_READ)):
+            roh, praefix = new_api_key()
+            Session.add(ApiKey(name=name, prefix=praefix, scope=scope,
+                               key_hash=security.hash_password(roh), created_by="test"))
+            cls.keys[name] = roh
+        Session.commit()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.context.pop()
+        try:
+            os.unlink(cls.db_path)
+        except OSError:
+            pass
+
+    def setUp(self):
+        from portal import ratelimit
+
+        ratelimit.zuruecksetzen()
+
+    def _kopf(self, name="schreibend"):
+        return {"Authorization": "Bearer " + self.keys[name]}
+
+    def test_guessing_the_secret_of_a_known_key_is_throttled(self):
+        """
+        Das Raten des Geheimnisses zu einem bekannten Präfix läuft in die Sperre.
+
+        Gezählt wird je Präfix, nicht je Adresse. Nach der Adresse zu zählen
+        hatte einen Fehler: hinter einem Reverse Proxy teilen sich alle
+        Aufrufer eine Adresse, und zehn Fehlversuche eines Dritten sperrten
+        das anbindende System aus.
+        """
+        praefix = self.keys["lesend"].split("_")[1]
+        codes = [self.client.get("/api/v1/customers", headers={
+            "Authorization": "Bearer esm_%s_%s" % (praefix, "y" * 43)}).status_code
+            for i in range(14)]
+        self.assertIn(429, codes, codes)
+        self.assertEqual(10, codes.count(401), codes)
+
+    def test_a_valid_key_is_not_locked_out_by_someone_elses_failures(self):
+        """
+        Der Kern der Umstellung von Adresse auf Präfix.
+
+        Fehlversuche gegen einen anderen Schlüssel dürfen den eigenen nicht
+        treffen. Vorher zählte alles auf dieselbe Adresse, und hinter einem
+        Reverse Proxy hätte das jeden Aufrufer mitgesperrt.
+
+        Was bleibt, ist Absicht: wer den Präfix eines Schlüssels kennt, sperrt
+        genau diesen für die Dauer des Fensters. Dieselbe Abwägung wie beim
+        Kontologin, und der Wirkungskreis ist ein Schlüssel.
+        """
+        fremd = self.keys["lesend"].split("_")[1]
+        for _ in range(14):
+            self.client.get("/api/v1/customers", headers={
+                "Authorization": "Bearer esm_%s_%s" % (fremd, "z" * 43)})
+        self.assertEqual(429, self.client.get("/api/v1/customers",
+                                              headers=self._kopf("lesend")).status_code,
+                         "der angegriffene Schlüssel muss gesperrt sein")
+        self.assertEqual(200, self.client.get("/api/v1/customers",
+                                              headers=self._kopf()).status_code,
+                         "ein anderer Schlüssel darf davon nichts merken")
+
+    def test_walking_through_prefixes_is_throttled_by_address(self):
+        """
+        Wechselnde Präfixe umgehen den Präfixzähler, deshalb ein zweiter.
+
+        Je Versuch ist das nur eine indizierte Abfrage, in der Menge trotzdem
+        Last. Gezählt werden auch hier ausschliesslich Fehlversuche.
+        """
+        codes = [self.client.get("/api/v1/customers", headers={
+            "Authorization": "Bearer esm_%08x_%s" % (i, "x" * 43)}).status_code
+            for i in range(70)]
+        self.assertIn(429, codes, sorted(set(codes)))
+        self.assertEqual(60, codes.count(401), sorted(set(codes)))
+
+    def test_a_valid_key_never_spends_the_failure_budget(self):
+        """
+        Sonst sperrte sich ein fleissiger Aufrufer selbst aus.
+
+        Genau das war die erste, verworfene Fassung: sie zählte jede Anfrage
+        und liess die Testsuite nach hundert Aufrufen auflaufen.
+        """
+        for _ in range(15):
+            self.assertEqual(200, self.client.get("/api/v1/customers",
+                                                  headers=self._kopf()).status_code)
+
+    def test_a_throttled_answer_says_when_to_come_back(self):
+        """Ohne Retry-After rät ein Client die Wartezeit."""
+        praefix = self.keys["lesend"].split("_")[1]
+        antwort = None
+        for _ in range(14):
+            antwort = self.client.get("/api/v1/customers", headers={
+                "Authorization": "Bearer esm_%s_%s" % (praefix, "y" * 43)})
+        self.assertEqual(429, antwort.status_code)
+        self.assertEqual("rate_limited", antwort.get_json()["error"]["code"])
+        self.assertTrue(antwort.headers.get("Retry-After", "").isdigit())
+
+    def test_a_read_only_key_spends_the_budget_on_denied_writes(self):
+        """
+        Ein Schlüssel, der dauernd schreiben will, verhält sich wie ein Angriff.
+
+        Der abgewiesene Schreibzugriff zählt als Fehlversuch, weil der Schlüssel
+        dabei nie freigegeben wird. Das trifft nur diesen einen Schlüssel.
+        """
+        codes = [self.client.post("/api/v1/customers", headers=self._kopf("lesend"),
+                                  json={}).status_code for _ in range(14)]
+        self.assertIn(429, codes, codes)
+        # Der schreibende Schlüssel bleibt davon unberührt.
+        self.assertEqual(200, self.client.get("/api/v1/customers",
+                                              headers=self._kopf()).status_code)
+
+    def test_the_openapi_route_is_throttled_like_every_other(self):
+        """
+        Sie nahm einen Schlüssel entgegen und ging an der Drosselung vorbei.
+
+        Aufgefallen in der Gegenprüfung: die Route rief die Schlüsselsuche
+        direkt auf, statt durch die gemeinsame Authentifizierung zu gehen.
+        Damit liess sich der Argon2-Vergleich über diesen einen Pfad
+        unbegrenzt auslösen, während jede andere Route längst 429 lieferte.
+        """
+        praefix = self.keys["lesend"].split("_")[1]
+        codes = [self.client.get("/api/v1/openapi.json", headers={
+            "Authorization": "Bearer esm_%s_%s" % (praefix, "y" * 43)}).status_code
+            for _ in range(14)]
+        self.assertIn(429, codes, codes)
+
+    def test_forced_checks_are_limited_per_customer(self):
+        """
+        Hinter /check steht eine echte Abfrage im Tenant des Kunden.
+
+        Ohne eigene, engere Grenze liesse sich der Tenant über das Portal
+        belasten, und zwar mit einem Schlüssel, der sonst alles richtig macht.
+        """
+        from unittest import mock
+
+        from tests.test_portal import fake_scan
+
+        self.client.post("/api/v1/customers", headers=self._kopf(),
+                         json=anlage(key="gebremst"))
+        with mock.patch("portal.scanner.graph.scan_tenant", side_effect=fake_scan):
+            codes = [self.client.post("/api/v1/customers/gebremst/check",
+                                      headers=self._kopf()).status_code
+                     for _ in range(14)]
+        self.assertIn(429, codes, codes)
+        self.assertEqual(12, codes.count(200), codes)
+
+    def test_the_check_limit_is_per_customer_not_global(self):
+        """Ein vielgeprüfter Kunde darf keinen anderen blockieren."""
+        from unittest import mock
+
+        from tests.test_portal import fake_scan
+
+        for kurz in ("erster", "zweiter"):
+            self.client.post("/api/v1/customers", headers=self._kopf(),
+                             json=anlage(key=kurz))
+        with mock.patch("portal.scanner.graph.scan_tenant", side_effect=fake_scan):
+            for _ in range(13):
+                self.client.post("/api/v1/customers/erster/check", headers=self._kopf())
+            zweiter = self.client.post("/api/v1/customers/zweiter/check",
+                                       headers=self._kopf())
+        self.assertEqual(200, zweiter.status_code)
+
+    def test_the_limiter_forgets_after_the_window(self):
+        """Eine Sperre, die nie endet, wäre eine Selbstblockade."""
+        from portal import ratelimit
+
+        grenze = ratelimit.Grenze("test", 2, 60)
+        self.assertEqual((True, 0), ratelimit.pruefe(grenze, "x"))
+        self.assertEqual((True, 0), ratelimit.pruefe(grenze, "x"))
+        erlaubt, warten = ratelimit.pruefe(grenze, "x")
+        self.assertFalse(erlaubt)
+        self.assertTrue(0 < warten <= 61)
+
+        # Die Uhr vorstellen statt zu warten: der Zähler nutzt monotonic().
+        with mock.patch.object(ratelimit, "_jetzt",
+                               side_effect=lambda: ratelimit.time.monotonic() + 61):
+            self.assertEqual((True, 0), ratelimit.pruefe(grenze, "x"))
+
+    def test_the_limiter_does_not_grow_without_bound(self):
+        """
+        Wechselnde Kennungen dürfen den Speicher nicht füllen.
+
+        Sonst wäre die Bremse gegen Durchprobieren selbst der Hebel für eine
+        Überlastung.
+        """
+        from portal import ratelimit
+
+        grenze = ratelimit.Grenze("wachstum", 5, 60)
+        for i in range(ratelimit.MAX_EIMER + 500):
+            ratelimit.pruefe(grenze, "kennung-%d" % i)
+        self.assertLessEqual(len(ratelimit._EIMER), ratelimit.MAX_EIMER)
+
+    def test_two_callers_are_counted_separately(self):
+        """Sonst sperrt ein Angreifer den echten Aufrufer aus."""
+        from portal import ratelimit
+
+        grenze = ratelimit.Grenze("getrennt", 1, 60)
+        self.assertTrue(ratelimit.pruefe(grenze, "a")[0])
+        self.assertTrue(ratelimit.pruefe(grenze, "b")[0])
+        self.assertFalse(ratelimit.pruefe(grenze, "a")[0])
+
+    def test_an_active_block_survives_a_flood_of_other_keys(self):
+        """
+        Die Speichergrenze darf keine laufende Sperre wegräumen.
+
+        Sonst wäre die Bremse selbst der Hebel, sie aufzuheben: Tabelle mit
+        erfundenen Kennungen fluten, und der gesperrte Kunde ist wieder frei.
+        Genau das liess die erste Fassung zu.
+        """
+        from portal import ratelimit
+
+        grenze = ratelimit.Grenze("kunde", 2, 3600)
+        ratelimit.pruefe(grenze, "wichtig")
+        ratelimit.pruefe(grenze, "wichtig")
+        self.assertFalse(ratelimit.pruefe(grenze, "wichtig")[0])
+
+        fuellen = ratelimit.Grenze("fuellen", 5, 60)
+        for i in range(ratelimit.MAX_EIMER + 200):
+            ratelimit.pruefe(fuellen, "muell-%d" % i)
+
+        self.assertFalse(ratelimit.pruefe(grenze, "wichtig")[0],
+                         "die Sperre wurde von der Speichergrenze geraeumt")
+        self.assertLessEqual(ratelimit.belegung(), ratelimit.MAX_EIMER)
+
+    def test_a_full_table_refuses_new_identities_instead_of_forgetting_old(self):
+        """Voll und nichts abgelaufen heisst abweisen, nicht vergessen."""
+        from portal import ratelimit
+
+        grenze = ratelimit.Grenze("voll", 5, 3600)
+        for i in range(ratelimit.MAX_EIMER):
+            ratelimit.pruefe(grenze, "belegt-%d" % i)
+        erlaubt, warten = ratelimit.pruefe(grenze, "neu")
+        self.assertFalse(erlaubt)
+        self.assertGreaterEqual(warten, 1)
+
+    def test_a_limit_below_one_is_refused_when_it_is_built(self):
+        """
+        Ein Grenzwert von 0 lief früher erst beim ersten Zugriff auf.
+
+        Als IndexError aus einer leeren deque, also als Serverfehler statt als
+        Konfigurationsfehler beim Start.
+        """
+        from portal import ratelimit
+
+        for anzahl, fenster in ((0, 60), (-1, 60), (5, 0)):
+            with self.subTest(anzahl=anzahl, fenster=fenster):
+                with self.assertRaises(ValueError):
+                    ratelimit.Grenze("kaputt", anzahl, fenster)
+
+    def test_the_config_refuses_a_limit_below_one(self):
+        """Und der Konfigurationslader fängt es ab, bevor das Portal startet."""
+        import base64
+        import os
+
+        from portal.config import ConfigError, load_config
+
+        basis = {"PORTAL_SECRET_KEY": "x" * 40,
+                 "PORTAL_ENCRYPTION_KEY": base64.b64encode(os.urandom(32)).decode()}
+        for variable in ("PORTAL_API_RATE_PER_MINUTE",
+                         "PORTAL_API_KEY_ATTEMPTS_PER_MINUTE",
+                         "PORTAL_API_ANON_ATTEMPTS_PER_MINUTE",
+                         "PORTAL_API_CHECK_PER_HOUR"):
+            with self.subTest(variable=variable):
+                with self.assertRaises(ConfigError) as gefangen:
+                    load_config(dict(basis, **{variable: "0"}))
+                self.assertIn(variable, str(gefangen.exception))
+
+    def test_retry_after_is_never_zero(self):
+        """Ein Retry-After von 0 lädt zum sofortigen Wiederholen ein."""
+        from unittest import mock
+
+        from portal import ratelimit
+
+        grenze = ratelimit.Grenze("knapp", 1, 1)
+        ratelimit.pruefe(grenze, "x")
+        # Kurz vor Ablauf des Fensters: die Restzeit rundet sonst auf 0.
+        with mock.patch.object(ratelimit, "_jetzt",
+                               side_effect=lambda: ratelimit.time.monotonic() + 0.99):
+            erlaubt, warten = ratelimit.pruefe(grenze, "x")
+        self.assertFalse(erlaubt)
+        self.assertGreaterEqual(warten, 1)
+
+    def test_the_gui_check_button_is_throttled_too(self):
+        """
+        Ein Knopf lässt sich so oft drücken wie ein Endpunkt aufrufen.
+
+        Die Grenze sass zuerst nur an der Schnittstelle; über die Oberfläche
+        liess sich derselbe Tenant-Scan unbegrenzt auslösen.
+
+        Eigene App statt der gemeinsamen: der Anwendungskontext dieser Klasse
+        bleibt gepusht, und eine Anmeldung über den Testclient scheitert dann
+        am CSRF-Schutz.
+        """
+        from unittest import mock
+
+        from tests.support import csrf_token, sign_in_admin
+        from tests.test_portal import build_app, fake_scan
+
+        app, dbpfad = build_app()
+        try:
+            with app.app_context():
+                from portal import crypto, ratelimit
+                from portal.db import Session
+                from portal.models import Customer, new_token
+
+                ratelimit.zuruecksetzen()
+                cfg = app.config["PORTAL"]
+                kunde = Customer(key="ueberdiegui", display_name="Über die GUI",
+                                 tenant_id=TENANT, client_id=CLIENT,
+                                 auth_type="secret", prtg_token=new_token())
+                kunde.client_secret_enc = crypto.encrypt(
+                    "s", cfg.encryption_key,
+                    crypto.aad_for("customer", kunde.key, "client_secret_enc"))
+                Session.add(kunde)
+                Session.commit()
+                kunde_id = kunde.id
+
+            browser = app.test_client()
+            sign_in_admin(browser)
+            with mock.patch("portal.scanner.graph.scan_tenant", side_effect=fake_scan):
+                for _ in range(cfg.api_check_per_hour + 1):
+                    letzte = browser.post(
+                        "/kunden/%d/pruefen" % kunde_id,
+                        data={"csrf_token": csrf_token(browser, "/")},
+                        follow_redirects=True)
+            self.assertIn("zu viele Prüfungen", letzte.get_data(as_text=True))
+        finally:
+            try:
+                os.unlink(dbpfad)
+            except OSError:
+                pass

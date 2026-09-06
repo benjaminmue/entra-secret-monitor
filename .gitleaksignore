@@ -1,0 +1,20 @@
+# Historische Treffer, jeder einzeln geprueft und als harmlos belegt.
+#
+# Nur fuer Befunde in bereits geschriebenen Commits: im Arbeitsbaum steht die
+# Rechtfertigung als `gitleaks:allow` neben der Zeichenkette. Ein Eintrag hier
+# gehoert immer mit einer Zeile begruendet, sonst wird die Datei zum Ort, an
+# dem echte Funde still verschwinden.
+
+# tests/test_remaining.py, Commit aff095c9 vom 29.08.2026:
+# Base64 von "0123456789abcdef0123456789abcdef". 32 Bytes der richtigen Laenge,
+# damit der Konfigurationslader sie annimmt, und kein Schluessel, der je etwas
+# verschluesselt hat. Im heutigen Arbeitsbaum als gitleaks:allow markiert.
+aff095c910c8bc1d95fbcaecffe9020f895a1032:tests/test_remaining.py:generic-api-key:59
+
+# .env.example, Commit bd2d60b vom 20.08.2026:
+# Zwei leere Zuweisungen (CONTOSO_CLIENT_SECRET= und FABRIKAM_CLIENT_SECRET=).
+# Der Standardausdruck liest ueber den Zeilenumbruch hinweg und nimmt den
+# Namen der naechsten Variablen als Wert. Es stand dort nie ein Wert; im
+# heutigen Stand tragen die Zeilen einen sichtbaren Platzhalter.
+bd2d60b0a47f3b7b954210b80a11e7d1de11b5a8:.env.example:generic-api-key:14
+bd2d60b0a47f3b7b954210b80a11e7d1de11b5a8:.env.example:generic-api-key:25

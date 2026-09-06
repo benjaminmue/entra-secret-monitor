@@ -281,6 +281,15 @@ The machine readable description lives at `/api/v1/openapi.json`. Full documenta
   `default-src 'none'`. The GUI ships no JavaScript, so scripts are forbidden
   outright rather than allow-listed.
 
+## Security gate
+
+Before anything reaches `main`, [docs/SECURITY-GATE.md](docs/SECURITY-GATE.md)
+is worked through. Everything that can be automated runs in
+`.github/workflows/security.yml`: both test runs, gitleaks over the tree and the
+history, `pip-audit`, an image build with a non-root check and Trivy. The rest,
+route sweeps against every role and the adversarial pass, is a manual step the
+document describes.
+
 ## Tests
 
 The suite is standard library only, no dependencies and no network:
