@@ -24,16 +24,13 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 sys.path.insert(0, os.path.join(ROOT, "app"))
 
-from tests.support import needs_portal                                   # noqa: E402
+from tests.support import (BOOTSTRAP_PASSWORD, NEW_PASSWORD,              # noqa: E402
+                           csrf_token, needs_portal, sign_in_admin)
 
 try:                                    # Nur vorhanden, wenn die Extras des
     import pyotp                        # Portals installiert sind; ohne sie
 except ImportError:                     # ueberspringt needs_portal alles hier.
     pyotp = None
-
-BOOTSTRAP_PASSWORD = "Start!Passwort2026x"
-NEW_PASSWORD = "Zaun#Kies7Vogel!Lampe"
-
 
 def build_app():
     """Create a portal app on a throwaway SQLite file with the scheduler off."""
@@ -236,17 +233,8 @@ class PortalFlowTests(unittest.TestCase):
         return self._csrf_for(self.client, path)
 
     def _csrf_for(self, client, path):
-        """
-        Extract the CSRF token as seen by one specific client.
-
-        The token is bound to the session, and the session is cleared between
-        the password step and the code step, so it has to be read again from
-        the page that is actually being submitted.
-        """
-        body = client.get(path).get_data(as_text=True)
-        match = re.search(r'name="csrf_token"[^>]*value="([^"]+)"', body)
-        self.assertIsNotNone(match, "kein CSRF-Token auf %s" % path)
-        return match.group(1)
+        """Extract the CSRF token as seen by one specific client."""
+        return csrf_token(client, path)
 
     def test_01_login_rejects_wrong_password(self):
         """A wrong password must not sign anyone in."""
@@ -599,27 +587,12 @@ class UserAdministrationTests(unittest.TestCase):
     @classmethod
     def _csrf_for(cls, client, path):
         """Read the CSRF token from a rendered form."""
-        body = client.get(path).get_data(as_text=True)
-        match = re.search(r'name="csrf_token"[^>]*value="([^"]+)"', body)
-        assert match, "kein CSRF-Token auf %s" % path
-        return match.group(1)
+        return csrf_token(client, path)
 
     @classmethod
     def _sign_in_admin(cls, client):
         """Walk the bootstrap account through TOTP enrollment and password change."""
-        client.post("/login", data={"csrf_token": cls._csrf_for(client, "/login"),
-                                    "username": "admin",
-                                    "password": BOOTSTRAP_PASSWORD})
-        token = cls._csrf_for(client, "/login/2fa/setup")
-        # The secret lives in the session during enrollment, not in the markup.
-        with client.session_transaction() as session:
-            secret = session["totp_setup_secret"]
-        client.post("/login/2fa/setup", data={"csrf_token": token,
-                                              "code": pyotp.TOTP(secret).now()})
-        client.post("/account/password", data={
-            "csrf_token": cls._csrf_for(client, "/account/password"),
-            "current_password": BOOTSTRAP_PASSWORD,
-            "new_password": NEW_PASSWORD, "confirm_password": NEW_PASSWORD})
+        sign_in_admin(client)
 
     @staticmethod
     def _reload(username):

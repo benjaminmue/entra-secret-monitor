@@ -8,7 +8,7 @@ flash message wording used across the blueprints.
 
 from functools import wraps
 
-from flask import abort, current_app, flash, redirect, url_for
+from flask import abort, current_app, flash, redirect, request, url_for
 from flask_login import current_user
 
 from portal.db import Session
@@ -18,6 +18,17 @@ from portal.models import ROLE_ADMIN, ROLE_OPERATOR
 def config():
     """Return the PortalConfig of the running application."""
     return current_app.config["PORTAL"]
+
+
+def base_url():
+    """
+    Return the externally reachable base URL of this instance.
+
+    PORTAL_BASE_URL gewinnt, weil hinter einem Reverse Proxy request.url_root
+    den internen Namen traegt. Eine Sensor-URL mit dem internen Namen sieht
+    richtig aus und ist von aussen tot.
+    """
+    return config().base_url or request.url_root.rstrip("/")
 
 
 def get_or_404(model, primary_key):

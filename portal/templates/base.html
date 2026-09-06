@@ -20,6 +20,8 @@
     {% if is_admin %}
     <a href="{{ url_for('users.index') }}"
        class="{{ 'active' if request.blueprint == 'users' }}">Benutzer</a>
+    <a href="{{ url_for('apikeys.index') }}"
+       class="{{ 'active' if request.blueprint == 'apikeys' }}">API</a>
     {% endif %}
     <a href="{{ url_for('docs.index') }}"
        class="{{ 'active' if request.blueprint == 'docs' }}">Anleitung</a>

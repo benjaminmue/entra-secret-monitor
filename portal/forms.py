@@ -19,7 +19,8 @@ from wtforms import (BooleanField, IntegerField, PasswordField, SelectField, Str
 from wtforms.validators import (DataRequired, Email, EqualTo, Length, NumberRange, Optional,
                                 Regexp, ValidationError)
 
-from portal.models import AUTH_CERT, AUTH_SECRET, ROLES, ROLE_LABELS
+from portal.models import (API_SCOPE_READ, API_SCOPE_WRITE, AUTH_CERT,
+                           AUTH_SECRET, ROLES, ROLE_LABELS)
 
 GUID = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-"
                   r"[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
@@ -133,3 +134,15 @@ class CustomerForm(FlaskForm):
 
 class ConfirmForm(FlaskForm):
     """Empty form used to CSRF protect buttons such as force check or delete."""
+
+
+class ApiKeyForm(FlaskForm):
+    """Name and scope of a new API key."""
+
+    name = StringField("Bezeichnung", validators=[
+        DataRequired(), Length(min=3, max=128),
+        Regexp(r"^[A-Za-z0-9 ._-]+$",
+               message="Buchstaben, Ziffern, Leerzeichen, Punkt, Unterstrich, Bindestrich")])
+    scope = SelectField("Bereich", choices=[(API_SCOPE_READ, "Nur Lesen"),
+                                            (API_SCOPE_WRITE, "Lesen und Schreiben")],
+                        default=API_SCOPE_READ, validators=[DataRequired()])

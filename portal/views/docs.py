@@ -12,13 +12,13 @@ from a README.
 
 from pathlib import Path
 
-from flask import Blueprint, abort, render_template, request, send_file
+from flask import Blueprint, abort, render_template, send_file
 from flask_login import login_required
 from sqlalchemy import select
 
 from portal.db import Session
 from portal.models import Customer
-from portal.views.helpers import config
+from portal.views.helpers import base_url, config
 
 bp = Blueprint("docs", __name__, url_prefix="/anleitung")
 
@@ -39,12 +39,6 @@ PERMISSION = {
 # portal/views/ -> portal/ -> root holds either way.
 SETUP_SCRIPT = (Path(__file__).resolve().parents[2] / "scripts"
                 / "New-MonitorAppRegistration.ps1")
-
-
-def base_url():
-    """Return the externally reachable base URL of this instance."""
-    cfg = config()
-    return cfg.base_url or request.url_root.rstrip("/")
 
 
 @bp.route("/")

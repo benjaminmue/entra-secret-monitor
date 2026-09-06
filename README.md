@@ -251,6 +251,20 @@ Restlaufzeit     Ablauf       Typ      App / Credential
 `--format prtg|json|text`, `--warn`, `--error`, `--filter`, `--exclude`, `--include-sp`,
 `--show-expired`, `--max-channels`, `--push`, `--list-tenants`.
 
+## REST API
+
+The portal exposes `/api/v1` so an upstream system, for example a service provider's
+own customer portal, can drive it: create a customer with tenant id, client id and
+secret, trigger a scan, read the remaining lifetimes, hand out the sensor URLs. Keys are
+issued under **Einstellungen, API** in two scopes, `read` and `write`, and authenticate
+through `Authorization: Bearer esm_...`.
+
+Credentials go in and never come back out. A response tells whether a credential is
+stored and, for a certificate, its thumbprint and expiry, never the secret itself.
+
+The machine readable description lives at `/api/v1/openapi.json`. Full documentation in
+[docs/PORTAL.md](docs/PORTAL.md#rest-schnittstelle).
+
 ## Security
 
 - Only `Application.Read.All` is required, which reads metadata. Secret **values**
@@ -278,6 +292,12 @@ python3 -m unittest discover -s tests -t .
 It covers configuration parsing, Graph paging and aggregation, both renderers,
 the request path, and a security group asserting HTML and XML escaping, token
 handling and the response headers against a live server on a loopback port.
+
+Install `requirements-portal.txt` as well and the portal suite runs too: login with
+its second factor, credential encryption, the customer lifecycle and the REST API
+including scope separation, input validation and the promise that no stored
+credential leaves the building. With the extras present the run must report zero
+skipped tests, otherwise the portal half silently did not run.
 
 ## Function inventory
 

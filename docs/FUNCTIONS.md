@@ -8,9 +8,9 @@ Implementierungen derselben Sache werden.
 
 | Kennzahl | Wert |
 |---|---|
-| Module | 21 |
-| Funktionen | 184 |
-| Ohne Docstring | 0 |
+| Module | 24 |
+| Funktionen | 230 |
+| Ohne Docstring | 2 |
 | Namensdubletten | 0 |
 | Strukturdubletten | 0 |
 
@@ -42,7 +42,8 @@ nicht eine Ausnahme vom Aufräumen.
 
 | Fundorte | Begründung |
 |---|---|
-| `portal/factory.py:_forbidden`, `portal/factory.py:_not_found` | Zwei Fehlerseiten mit demselben Aufbau und verschiedenem Statuscode. Zusammenlegen würde eine Fallunterscheidung einführen, wo heute zwei gerade Handler stehen. |
+| `portal/factory.py:_forbidden`, `portal/factory.py:_method_not_allowed`, `portal/factory.py:_not_found`, `portal/factory.py:_too_large` | Fehlerseiten mit demselben Aufbau und verschiedenem Statuscode. Flask verlangt je eine Funktion pro Code; die gemeinsame Arbeit steckt bereits in _fehlerseite. |
+| `portal/models.py:auth_label`, `portal/models.py:scope_label` | Anmeldeart eines Kunden gegen Bereich eines API-Schlüssels. Gleiche Form, verschiedene Modelle, kein gemeinsamer Begriff dahinter. |
 | `portal/models.py:object_label`, `portal/models.py:type_label` | Zwei Anzeigenamen auf verschiedenen Feldern desselben Modells. |
 | `portal/security.py:decrypt_totp_secret`, `portal/security.py:encrypt_totp_secret` | Gegenstücke. Gleiche Form ist hier die Absicht, nicht die Kopie. |
 | `portal/views/auth.py:_clear_pending`, `portal/views/auth.py:_clear_reenrollment` | Beide räumen zwei Session-Schlüssel weg, die Namen tragen aber die Bedeutung: halbfertiger Login gegen Fenster zur Neuregistrierung. Ein generisches _clear(*keys) wäre kürzer und schlechter zu lesen. |
@@ -156,22 +157,25 @@ nicht eine Ausnahme vom Aufräumen.
 | 32 | `create_app(config=None)` | Wert | Build and return the configured Flask application. |
 | 71 | `_load_user(user_id)` | Wert | Resolve the session user id to a User row, ignoring disabled accounts. |
 | 80 | `_register_blueprints(app)` | kein Rückgabewert | Attach every route group and exempt the PRTG endpoint from CSRF. |
-| 93 | `_register_hooks(app, cfg)` | Wert | Register teardown, security headers, template globals and error pages. |
-| 98 | `_harden_session()` | kein Rückgabewert | Keep the session short lived and expose the config to the request. |
-| 105 | `_security_headers(response)` | Wert | Send the headers a browser needs to protect the portal. |
-| 121 | `_template_globals()` | Wert | Values every template needs without passing them through each view. |
-| 131 | `_forbidden(_error)` | Wert | Render the styled error page instead of the Flask default. |
-| 137 | `_not_found(_error)` | Wert | Render the styled error page instead of the Flask default. |
-| 143 | `_server_error(error)` | Wert | Log the exception and show a neutral page without a stack trace. |
-| 150 | `_ensure_schema_row()` | kein Rückgabewert | Write the schema marker on a fresh database. |
-| 158 | `_bootstrap_admin(cfg)` | kein Rückgabewert | Create the first administrator from the environment when no user exists. |
+| 100 | `_register_hooks(app, cfg)` | Wert | Register teardown, security headers, template globals and error pages. |
+| 105 | `_harden_session()` | kein Rückgabewert | Keep the session short lived and expose the config to the request. |
+| 112 | `_security_headers(response)` | Wert | Send the headers a browser needs to protect the portal. |
+| 128 | `_template_globals()` | Wert | Values every template needs without passing them through each view. |
+| 137 | `_fehlerseite(code, message, api_code)` | Wert | Answer an error the way the caller can read it. |
+| 150 | `_forbidden(_error)` | Wert | Render the styled error page instead of the Flask default. |
+| 155 | `_not_found(_error)` | Wert | Render the styled error page instead of the Flask default. |
+| 160 | `_method_not_allowed(_error)` | Wert | Render the styled error page instead of the Flask default. |
+| 166 | `_too_large(_error)` | Wert | The body exceeded MAX_CONTENT_LENGTH. |
+| 171 | `_server_error(error)` | Wert | Log the exception and show a neutral page without a stack trace. |
+| 178 | `_ensure_schema_row()` | kein Rückgabewert | Write the schema marker on a fresh database. |
+| 186 | `_bootstrap_admin(cfg)` | kein Rückgabewert | Create the first administrator from the environment when no user exists. |
 
 ### `portal/forms.py`
 
 | Zeile | Funktion | Rückgabe | Beschreibung |
 |---|---|---|---|
-| 33 | `pre_validate(self, form)` | kein Rückgabewert | Reject anything that is not a GUID before the form is used. |
-| 122 | `validate(self, extra_validators=None)` | Wert | Enforce that the chosen authentication method is actually filled in. |
+| 34 | `pre_validate(self, form)` | kein Rückgabewert | Reject anything that is not a GUID before the form is used. |
+| 123 | `validate(self, extra_validators=None)` | Wert | Enforce that the chosen authentication method is actually filled in. |
 
 ### `portal/models.py`
 
@@ -189,18 +193,31 @@ nicht eine Ausnahme vom Aufräumen.
 | 189 | `auth_label(self)` | Wert | German label of the configured authentication method. |
 | 250 | `type_label(self)` | Wert | German label of the credential type. |
 | 255 | `object_label(self)` | Wert | German label of the owning directory object. |
+| 289 | `new_api_key()` | Wert | Return (vollstaendiger Schluessel, Praefix) for a fresh API key. |
+| 324 | `is_active(self)` | Wert | True while the key has not been revoked. |
+| 329 | `may_write(self)` | Wert | True when the key is allowed to change anything. |
+| 334 | `scope_label(self)` | Wert | German label of the scope for display. |
+
+### `portal/openapi.py`
+
+| Zeile | Funktion | Rückgabe | Beschreibung |
+|---|---|---|---|
+| 165 | `_json(schema_ref)` | Wert | Shorthand for one application/json body of the given schema. |
+| 170 | `_antwort(beschreibung, schema_ref=None)` | Wert | One response entry, with or without a body. |
+| 178 | `_operation(endpunkt, extras)` | Wert | Build one operation object from a directory entry plus its specifics. |
+| 286 | `build(base_url, instance_name, endpunkte)` | Wert | Render the OpenAPI document of this instance. |
 
 ### `portal/scanner.py`
 
 | Zeile | Funktion | Rückgabe | Beschreibung |
 |---|---|---|---|
-| 35 | `customer_to_config(customer, encryption_key)` | Wert | Build the graph.TenantConfig for one customer, decrypting its credential. |
-| 74 | `inspect_certificate(cert_pem, key_pem)` | Wert | Validate an uploaded key pair and return (thumbprint, not_after). |
-| 96 | `run_check(session, customer, encryption_key, trigger=TRIGGER_SCHEDULE, actor='system', history_runs=30)` | Wert | Execute one scan for a customer and persist the outcome. |
-| 166 | `_trim_history(session, customer_id, keep)` | kein Rückgabewert | Delete check runs beyond the configured history depth. |
-| 175 | `result_from_db(session, customer, max_channels=None)` | Wert | Rebuild the renderer result structure from the stored snapshot. |
-| 221 | `data_age_hours(customer)` | Wert | Whole hours since the last successful scan, -1 when never scanned. |
-| 231 | `filter_result(result, app='', name_filter='', exclude='', cred_type='', warn_days=None, error_days=None, max_channels=None)` | Wert | Narrow a stored result down to a subset of its channels. |
+| 36 | `customer_to_config(customer, encryption_key)` | Wert | Build the graph.TenantConfig for one customer, decrypting its credential. |
+| 75 | `inspect_certificate(cert_pem, key_pem)` | Wert | Validate an uploaded key pair and return (thumbprint, not_after). |
+| 112 | `run_check(session, customer, encryption_key, trigger=TRIGGER_SCHEDULE, actor='system', history_runs=30)` | Wert | Execute one scan for a customer and persist the outcome. |
+| 182 | `_trim_history(session, customer_id, keep)` | kein Rückgabewert | Delete check runs beyond the configured history depth. |
+| 191 | `result_from_db(session, customer, max_channels=None)` | Wert | Rebuild the renderer result structure from the stored snapshot. |
+| 237 | `data_age_hours(customer)` | Wert | Whole hours since the last successful scan, -1 when never scanned. |
+| 247 | `filter_result(result, app='', name_filter='', exclude='', cred_type='', warn_days=None, error_days=None, max_channels=None)` | Wert | Narrow a stored result down to a subset of its channels. |
 
 ### `portal/scheduler.py`
 
@@ -243,6 +260,51 @@ nicht eine Ausnahme vom Aufräumen.
 |---|---|---|---|
 | 18 | `main()` | Wert | Start the portal and serve until terminated. |
 
+### `portal/views/api.py`
+
+| Zeile | Funktion | Rückgabe | Beschreibung |
+|---|---|---|---|
+| 77 | `fehler(status, code, meldung, felder=None)` | Wert | Render one error response. |
+| 90 | `schluessel_aus_anfrage()` | Wert | Read the bearer token from the Authorization header, or None. |
+| 98 | `finde_schluessel(roh)` | Wert | Resolve a presented key to its record, or None. |
+| 120 | `benoetigt_schluessel(schreibend=False)` | Wert | Decorator: require a valid API key, optionally one that may write. |
+| 128 | `dekorator(sicht)` | Wert | _ohne Docstring_ |
+| 130 | `huelle(*args, **kwargs)` | Wert | _ohne Docstring_ |
+| 166 | `zeitstempel(wert)` | Wert | ISO 8601 in UTC, oder None. |
+| 175 | `sensor_urls(kunde)` | Wert | The externally reachable sensor URLs of one customer. |
+| 186 | `kunde_als_json(kunde, mit_credentials=False)` | Wert | Render one customer. |
+| 230 | `credential_als_json(eintrag)` | Wert | Render one stored credential. Never carries a secret value. |
+| 245 | `hole_kunde(schluessel)` | Wert | Load a customer by its key, or None. |
+| 273 | `als_ganzzahl(wert)` | Wert | Read one integer from the request, or None when it is not one. |
+| 290 | `text(daten, feld, kunde=None, standard='')` | Wert | Read one text field, falling back to the stored value. |
+| 299 | `zahl(daten, feld, standard)` | Wert | Read one integer field, falling back to the given default. |
+| 304 | `pruefe_typen(daten)` | Wert | Reject fields whose type cannot be used, before anything touches them. |
+| 334 | `pruefe_schwellen(daten, kunde=None)` | Wert | Check the pair of thresholds in the state it would end up in. |
+| 355 | `pruefe_zugangsdaten(daten, kunde=None)` | Wert | Check that the resulting authentication method has usable material. |
+| 394 | `pruefe_anlage(daten)` | Wert | Validate the body of a create request, returning a dict of field errors. |
+| 413 | `pruefe_aenderung(daten, kunde)` | Wert | Validate a change against the state the customer would end up in. |
+| 422 | `uebernehme_zugangsdaten(kunde, daten, schluesselmaterial)` | kein Rückgabewert | Store the credential that matches the chosen method. |
+| 464 | `wurzel()` | Wert | Entry point: version and the available endpoints. |
+| 477 | `openapi_document()` | Wert | The machine readable description of this instance. |
+| 495 | `kunden_liste()` | Wert | List every customer with its current summary. |
+| 505 | `kunde_anlegen()` | Wert | Create a customer, store its credential and schedule a daily slot. |
+| 552 | `kunde_lesen(key)` | Wert | One customer including its stored credentials. |
+| 562 | `kunde_aendern(key)` | Wert | Change a customer. Fields left out keep their value. |
+| 603 | `kunde_loeschen(key)` | Wert | Remove a customer with its history. |
+| 618 | `kunde_pruefen(key)` | Wert | Run a scan for this customer right now. |
+| 652 | `kunde_credentials(key)` | Wert | The stored credentials of one customer, shortest runtime first. |
+| 668 | `kunde_urls(key)` | Wert | The sensor URLs of one customer. |
+| 678 | `kunde_token(key)` | Wert | Issue a new PRTG token; the previous sensor URL stops serving data. |
+
+### `portal/views/apikeys.py`
+
+| Zeile | Funktion | Rückgabe | Beschreibung |
+|---|---|---|---|
+| 32 | `index()` | Wert | List every API key together with the endpoint directory. |
+| 44 | `create()` | Wert | Issue a new key and show it exactly once. |
+| 82 | `revoke(key_id)` | Wert | Revoke a key without deleting it, so the audit trail stays readable. |
+| 97 | `delete(key_id)` | Wert | Remove a key entirely. |
+
 ### `portal/views/auth.py`
 
 | Zeile | Funktion | Rückgabe | Beschreibung |
@@ -275,15 +337,15 @@ nicht eine Ausnahme vom Aufräumen.
 
 | Zeile | Funktion | Rückgabe | Beschreibung |
 |---|---|---|---|
-| 30 | `_apply_credentials(form, customer, cfg, is_new)` | kein Rückgabewert | Store the credential that matches the chosen authentication method. |
-| 69 | `_apply_settings(form, customer)` | kein Rückgabewert | Copy every non credential field from the form onto the customer. |
-| 88 | `create()` | Wert | Onboard a new customer tenant and verify the connection right away. |
-| 129 | `edit(customer_id)` | Wert | Change the settings or the credential of an existing customer. |
-| 160 | `detail(customer_id)` | Wert | Show the stored credential state of one customer plus its run history. |
-| 179 | `force(customer_id)` | Wert | Force check: fetch the current state now instead of waiting for the slot. |
-| 209 | `rotate_token(customer_id)` | Wert | Issue a new PRTG token, invalidating the old sensor URL. |
-| 226 | `delete(customer_id)` | Wert | Remove a customer with its history; only administrators may do this. |
-| 244 | `redistribute()` | Wert | Spread every customer evenly over the day again. |
+| 29 | `_apply_credentials(form, customer, cfg, is_new)` | kein Rückgabewert | Store the credential that matches the chosen authentication method. |
+| 68 | `_apply_settings(form, customer)` | kein Rückgabewert | Copy every non credential field from the form onto the customer. |
+| 87 | `create()` | Wert | Onboard a new customer tenant and verify the connection right away. |
+| 128 | `edit(customer_id)` | Wert | Change the settings or the credential of an existing customer. |
+| 159 | `detail(customer_id)` | Wert | Show the stored credential state of one customer plus its run history. |
+| 178 | `force(customer_id)` | Wert | Force check: fetch the current state now instead of waiting for the slot. |
+| 208 | `rotate_token(customer_id)` | Wert | Issue a new PRTG token, invalidating the old sensor URL. |
+| 225 | `delete(customer_id)` | Wert | Remove a customer with its history; only administrators may do this. |
+| 243 | `redistribute()` | Wert | Spread every customer evenly over the day again. |
 
 ### `portal/views/dashboard.py`
 
@@ -297,21 +359,21 @@ nicht eine Ausnahme vom Aufräumen.
 
 | Zeile | Funktion | Rückgabe | Beschreibung |
 |---|---|---|---|
-| 44 | `base_url()` | Wert | Return the externally reachable base URL of this instance. |
-| 52 | `index()` | Wert | Render the onboarding guide. |
-| 62 | `setup_script()` | Wert | Hand out the setup script that Variante A of the guide refers to. |
+| 46 | `index()` | Wert | Render the onboarding guide. |
+| 56 | `setup_script()` | Wert | Hand out the setup script that Variante A of the guide refers to. |
 
 ### `portal/views/helpers.py`
 
 | Zeile | Funktion | Rückgabe | Beschreibung |
 |---|---|---|---|
 | 18 | `config()` | Wert | Return the PortalConfig of the running application. |
-| 23 | `get_or_404(model, primary_key)` | Wert | Load one record by primary key or abort with 404. |
-| 36 | `require_role(*roles)` | Wert | Decorator that rejects a signed in user without one of the given roles. |
-| 38 | `decorator(view)` | Wert | Wrap one view function. |
-| 41 | `wrapper(*args, **kwargs)` | Wert | Check the role before delegating to the view. |
-| 52 | `require_write(view)` | Wert | Shortcut for the two roles that may change data. |
-| 57 | `form_errors(form)` | kein Rückgabewert | Flash every validation error of a form in a readable form. |
+| 23 | `base_url()` | Wert | Return the externally reachable base URL of this instance. |
+| 34 | `get_or_404(model, primary_key)` | Wert | Load one record by primary key or abort with 404. |
+| 47 | `require_role(*roles)` | Wert | Decorator that rejects a signed in user without one of the given roles. |
+| 49 | `decorator(view)` | Wert | Wrap one view function. |
+| 52 | `wrapper(*args, **kwargs)` | Wert | Check the role before delegating to the view. |
+| 63 | `require_write(view)` | Wert | Shortcut for the two roles that may change data. |
+| 68 | `form_errors(form)` | kein Rückgabewert | Flash every validation error of a form in a readable form. |
 
 ### `portal/views/prtg.py`
 

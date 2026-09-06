@@ -154,6 +154,116 @@ mehr den ganzen Tenant.
 
 Dieselben Daten als JSON: `https://<portal>/json/<token>`, dieselben Parameter.
 
+## REST-Schnittstelle
+
+Für die Ansteuerung aus einem übergeordneten System, etwa einem Cloudportal, liegt unter
+`/api/v1` eine REST-Schnittstelle. Sie kann alles, was die Oberfläche kann: Kunden
+anlegen und ändern, Prüfungen auslösen, Restlaufzeiten und Sensor-URLs abfragen.
+
+Verwaltet wird sie unter **Einstellungen, API**. Die Seite listet die Endpunkte, stellt
+Schlüssel aus und verlinkt die maschinenlesbare Beschreibung.
+
+### Schlüssel
+
+Ein Schlüssel hat die Form `esm_<präfix>_<geheimnis>` und wird genau einmal angezeigt.
+Gespeichert wird nur ein Argon2-Hash; der Präfix dient dem Nachschlagen und berechtigt
+allein zu nichts. Zwei Bereiche stehen zur Wahl:
+
+| Bereich | Darf |
+|---|---|
+| `read` | Kunden, Zugangsdaten, Sensor-URLs und das OpenAPI-Dokument lesen |
+| `write` | zusätzlich anlegen, ändern, löschen, Prüfungen auslösen, Token wechseln |
+
+Nur Administratoren stellen Schlüssel aus. Ein schreibender Schlüssel wiegt so schwer wie
+ein Bedienerkonto, nur ohne zweiten Faktor. Widerrufen wirkt sofort und lässt die Zeile
+für das Protokoll stehen; jede Nutzung schreibt `last_used_at` fort, ein abgelehnter
+Versuch landet im Audit-Log.
+
+Mitgeschickt wird der Schlüssel im Kopf:
+
+```
+Authorization: Bearer esm_xxxxxxxx_...
+```
+
+### Endpunkte
+
+| Methode | Pfad | Bereich | Zweck |
+|---|---|---|---|
+| GET | `/api/v1/` | read | Version und Endpunktverzeichnis |
+| GET | `/api/v1/openapi.json` | read | Maschinenlesbare Beschreibung |
+| GET | `/api/v1/customers` | read | Alle Kunden mit Zusammenfassung |
+| POST | `/api/v1/customers` | write | Kunde anlegen |
+| GET | `/api/v1/customers/<key>` | read | Ein Kunde samt Laufzeiten |
+| PATCH | `/api/v1/customers/<key>` | write | Ändern, weggelassene Felder bleiben stehen |
+| DELETE | `/api/v1/customers/<key>` | write | Kunde mit Verlauf entfernen |
+| POST | `/api/v1/customers/<key>/check` | write | Prüfung sofort auslösen |
+| GET | `/api/v1/customers/<key>/credentials` | read | Zugangsdaten, kürzeste Laufzeit zuerst |
+| GET | `/api/v1/customers/<key>/urls` | read | Sensor-URLs |
+| POST | `/api/v1/customers/<key>/token` | write | Neues Sensor-Token |
+
+Kunde anlegen:
+
+```bash
+curl -X POST https://<portal>/api/v1/customers \
+  -H "Authorization: Bearer esm_xxxxxxxx_..." \
+  -H "Content-Type: application/json" \
+  -d '{
+        "key": "musterag",
+        "display_name": "Muster AG",
+        "tenant_id": "00000000-0000-0000-0000-000000000000",
+        "client_id": "11111111-1111-1111-1111-111111111111",
+        "auth_type": "secret",
+        "client_secret": "..."
+      }'
+```
+
+Die Antwort enthält den angelegten Kunden samt Sensor-URLs. Der Kunde bekommt sofort
+einen Platz im Tagesplan; eine erste Prüfung löst `POST /customers/musterag/check` aus,
+die Antwort trägt das Ergebnis.
+
+Statt eines Secrets nimmt `auth_type: "certificate"` ein Paar aus `cert_pem` und
+`key_pem` entgegen. Der private Schlüssel muss unverschlüsselt sein.
+
+### Zugangsdaten: entgegennehmen, nie herausgeben
+
+Client Secrets und private Schlüssel gehen hinein und kommen nicht wieder heraus. Keine
+Antwort trägt sie, auch nicht die Detailansicht eines Kunden. Zurück kommt nur
+`has_credential`, und bei einem Zertifikat dessen Fingerabdruck und Ablaufdatum. Der
+Test `test_the_stored_secret_is_encrypted_and_never_returned` prüft das an der Datenbank
+und an jeder Antwort, die einen Kunden ausgibt.
+
+Anders liegt der Fall bei den **Sensor-URLs**: sie enthalten das PRTG-Token, weil genau
+das ihr Zweck ist. Wer eine solche URL hat, liest die Kanäle dieses Kunden auch ohne
+API-Schlüssel, und der Widerruf eines API-Schlüssels nimmt das nicht zurück. Wurde eine
+URL weitergegeben, ist `POST /customers/<key>/token` der Weg: das alte Token verfällt,
+im PRTG muss die URL des Sensors nachgezogen werden.
+
+### Fehler
+
+Jede Antwort ist JSON, auch im Fehlerfall, mit maschinenlesbarem Code und einem Satz für
+den Menschen davor:
+
+```json
+{"error": {"code": "validation_failed", "message": "Eingaben unvollständig.",
+           "fields": {"error_days": "Muss kleiner oder gleich warn_days sein, hier 14 gegen 1"}}}
+```
+
+| Code | Status | Bedeutung |
+|---|---|---|
+| `unauthenticated` | 401 | Kein Schlüssel im Kopf |
+| `invalid_key` | 401 | Unbekannt oder widerrufen |
+| `read_only` | 403 | Schreibversuch mit lesendem Schlüssel |
+| `not_found` | 404 | Kein Kunde mit diesem Kurznamen |
+| `duplicate` | 409 | Kurzname bereits vergeben |
+| `busy` | 409 | Ein anderer Scan blockiert länger als erlaubt |
+| `validation_failed` | 422 | `fields` nennt Feld und Grund |
+| `invalid_credential` | 422 | Zertifikat und Schlüssel passen nicht zusammen |
+
+Eingaben werden vor der Verarbeitung auf Typ und Wertebereich geprüft, und zwar für
+Anlage und Änderung nach denselben Regeln. Eine Zahl in einem Textfeld, ein `"false"` in
+einem Wahrheitsfeld oder ein Wechsel der Anmeldeart ohne passendes Material sind
+Feldfehler, keine Serverfehler.
+
 ## Sicherheit
 
 **SQL-Injection.** Jeder Datenbankzugriff läuft über SQLAlchemy mit gebundenen
@@ -170,6 +280,13 @@ Ziffer und Sonderzeichen. Zusätzlich abgelehnt werden Passwörter, die den
 Benutzernamen enthalten, auf einem leicht erratbaren Wortstamm aufbauen oder ein
 Zeichen mehr als dreimal hintereinander wiederholen. Neue Konten erhalten ein
 generiertes Einmalpasswort, das genau einmal angezeigt wird.
+
+**API-Schlüssel.** Argon2id wie bei Passwörtern, nachgeschlagen über den Präfix und
+verglichen über den Hash. Der Bereich `read` kann nichts verändern, jeder Schreibversuch
+mit einem lesenden Schlüssel endet in 403 und im Audit-Log. Die Schnittstelle ist von der
+CSRF-Prüfung ausgenommen, weil sie kein Sitzungscookie akzeptiert: die Berechtigung steckt
+im mitgeschickten Kopf, nicht im Browserzustand, und damit greift kein Angriff über eine
+fremde Seite.
 
 **Zweiter Faktor.** TOTP ist Pflicht, nicht optional. Ein Konto ohne eingerichtete
 Authenticator-App kommt über die Einrichtungsseite nicht hinaus. Der Zähler des zuletzt
@@ -232,11 +349,12 @@ python -m pip install -r requirements-portal.txt
 PYTHONPATH=. python -m unittest discover -s tests -v
 ```
 
-20 Tests, keiner spricht mit Microsoft. Abgedeckt sind Passwortregeln, Verschlüsselung,
+402 Tests, keiner spricht mit Microsoft. Abgedeckt sind Passwortregeln, Verschlüsselung,
 TOTP-Wiedereinspielung, der zweistufige Anmeldeablauf, die Sperre auf der TOTP-Stufe, die
 Unmöglichkeit, eine bestätigte Authenticator-App über die Einrichtungsseite zu ersetzen,
 CSRF, der Kundenlebenszyklus samt PRTG-Ausgabe und Filterparametern, die Slotverteilung,
-die Einmal-pro-Tag-Regel und die Rollentrennung.
+die Einmal-pro-Tag-Regel, die Rollentrennung sowie die REST-Schnittstelle samt
+Bereichstrennung, Eingabeprüfung und der Zusage, dass kein Zugangsdatum herauskommt.
 
 ## Grenzen
 

@@ -17,7 +17,8 @@ try:
 except ImportError:
     pyotp = None
 
-from tests.test_portal import BOOTSTRAP_PASSWORD, NEW_PASSWORD, build_app
+from tests.support import csrf_token, sign_in_admin
+from tests.test_portal import build_app
 
 TENANT_GUID = "11111111-2222-3333-4444-555555555555"
 CLIENT_GUID = "66666666-7777-8888-9999-000000000000"
@@ -43,25 +44,13 @@ class CustomerAdministrationTests(unittest.TestCase):
 
     @classmethod
     def _csrf_for(cls, client, path):
-        body = client.get(path).get_data(as_text=True)
-        match = re.search(r'name="csrf_token"[^>]*value="([^"]+)"', body)
-        assert match, "kein CSRF-Token auf %s" % path
-        return match.group(1)
+        """Read the CSRF token from a rendered form."""
+        return csrf_token(client, path)
 
     @classmethod
     def _sign_in(cls, client):
-        client.post("/login", data={"csrf_token": cls._csrf_for(client, "/login"),
-                                    "username": "admin",
-                                    "password": BOOTSTRAP_PASSWORD})
-        token = cls._csrf_for(client, "/login/2fa/setup")
-        with client.session_transaction() as session:
-            secret = session["totp_setup_secret"]
-        client.post("/login/2fa/setup", data={"csrf_token": token,
-                                              "code": pyotp.TOTP(secret).now()})
-        client.post("/account/password", data={
-            "csrf_token": cls._csrf_for(client, "/account/password"),
-            "current_password": BOOTSTRAP_PASSWORD,
-            "new_password": NEW_PASSWORD, "confirm_password": NEW_PASSWORD})
+        """Sign the bootstrap administrator in."""
+        sign_in_admin(client)
 
     def _create(self, key, secret=SECRET):
         """Create one customer through the form and return the stored model."""

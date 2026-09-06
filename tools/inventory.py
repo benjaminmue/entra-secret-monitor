@@ -65,12 +65,16 @@ ALLOWED_NAME_DUPLICATES = {
 # Geprüfte Strukturgleichheiten. Schlüssel ist die sortierte Liste der Fundorte,
 # damit ein Eintrag nur genau dieses Paar entschuldigt und nicht pauschal wirkt.
 ALLOWED_STRUCTURE_DUPLICATES = {
-    ("portal/factory.py:_forbidden", "portal/factory.py:_not_found"):
-        "Zwei Fehlerseiten mit demselben Aufbau und verschiedenem Statuscode. "
-        "Zusammenlegen würde eine Fallunterscheidung einführen, wo heute zwei "
-        "gerade Handler stehen.",
+    ("portal/factory.py:_forbidden", "portal/factory.py:_method_not_allowed",
+     "portal/factory.py:_not_found", "portal/factory.py:_too_large"):
+        "Fehlerseiten mit demselben Aufbau und verschiedenem Statuscode. Flask "
+        "verlangt je eine Funktion pro Code; die gemeinsame Arbeit steckt bereits "
+        "in _fehlerseite.",
     ("portal/models.py:object_label", "portal/models.py:type_label"):
         "Zwei Anzeigenamen auf verschiedenen Feldern desselben Modells.",
+    ("portal/models.py:auth_label", "portal/models.py:scope_label"):
+        "Anmeldeart eines Kunden gegen Bereich eines API-Schlüssels. Gleiche "
+        "Form, verschiedene Modelle, kein gemeinsamer Begriff dahinter.",
     ("portal/security.py:decrypt_totp_secret", "portal/security.py:encrypt_totp_secret"):
         "Gegenstücke. Gleiche Form ist hier die Absicht, nicht die Kopie.",
     ("portal/views/auth.py:_clear_pending", "portal/views/auth.py:_clear_reenrollment"):

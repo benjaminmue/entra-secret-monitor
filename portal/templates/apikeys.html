@@ -1,0 +1,119 @@
+{% extends "base.html" %}
+{% block title %}API{% endblock %}
+{% block content %}
+<h1>API</h1>
+<p class="lead">Die REST-Schnittstelle unter <span class="mono">/api/v1</span> erlaubt einem
+  übergeordneten System, Kunden anzulegen, Prüfungen auszulösen und Laufzeiten abzufragen.
+  Authentifiziert wird mit einem Schlüssel im Kopf
+  <span class="mono">Authorization: Bearer &lt;schlüssel&gt;</span>.</p>
+
+<div class="card">
+  <h2>Schlüssel ausstellen</h2>
+  <form method="post" action="{{ url_for('apikeys.create') }}">
+    {{ new_form.csrf_token }}
+    <div class="grid2">
+      <div class="field">
+        {{ new_form.name.label }}
+        {{ new_form.name(placeholder="Cloudportal") }}
+      </div>
+      <div class="field">
+        {{ new_form.scope.label }}
+        {{ new_form.scope() }}
+      </div>
+    </div>
+    <div class="actions toolbar">
+      <button class="btn" type="submit">Ausstellen</button>
+    </div>
+  </form>
+  <p class="hint">Ein schreibender Schlüssel darf so viel wie ein Bedienerkonto, nur ohne
+    zweiten Faktor. Für ein System, das nur Zahlen abholt, genügt Nur Lesen.</p>
+</div>
+
+<div class="card">
+  <h2>Schlüssel</h2>
+  {% if keys %}
+  <div class="scroll">
+  <table>
+    <thead><tr>
+      <th>Bezeichnung</th><th>Präfix</th><th>Bereich</th><th>Status</th>
+      <th>Angelegt</th><th>Zuletzt genutzt</th><th>Aktionen</th>
+    </tr></thead>
+    <tbody>
+      {% for key in keys %}
+      <tr>
+        <td class="wrap">{{ key.name }}<br>
+          <span class="hint">von {{ key.created_by or 'unbekannt' }}</span></td>
+        <td class="mono">{{ key.prefix }}</td>
+        <td>{{ key.scope_label }}</td>
+        <td>{% if key.is_active %}<span class="badge b-ok">aktiv</span>
+            {% else %}<span class="badge b-muted">widerrufen</span>{% endif %}</td>
+        <td class="mono">{{ key.created_at.strftime('%Y-%m-%d') if key.created_at else '-' }}</td>
+        <td class="mono">{{ key.last_used_at.strftime('%Y-%m-%d %H:%M')
+          if key.last_used_at else 'nie' }}</td>
+        <td>
+          <div class="actions">
+            {% if key.is_active %}
+            <form method="post" action="{{ url_for('apikeys.revoke', key_id=key.id) }}"
+                  class="inline">
+              {{ form.csrf_token }}
+              <button class="btn ghost small" type="submit">Widerrufen</button>
+            </form>
+            {% endif %}
+            <form method="post" action="{{ url_for('apikeys.delete', key_id=key.id) }}"
+                  class="inline">
+              {{ form.csrf_token }}
+              <button class="btn danger small" type="submit">Löschen</button>
+            </form>
+          </div>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% else %}
+  <p class="hint">Noch kein Schlüssel ausgestellt.</p>
+  {% endif %}
+</div>
+
+<div class="card">
+  <h2>Endpunkte</h2>
+  <div class="scroll">
+  <table>
+    <thead><tr><th>Methode</th><th>Pfad</th><th>Bereich</th><th class="wrap">Zweck</th></tr></thead>
+    <tbody>
+      {% for endpoint in endpoints %}
+      <tr>
+        <td class="mono">{{ endpoint.methode }}</td>
+        <td class="mono wrap">{{ endpoint.pfad }}</td>
+        <td>{% if endpoint.bereich == 'write' %}<span class="badge b-warn">schreibend</span>
+            {% else %}<span class="badge b-muted">lesend</span>{% endif %}</td>
+        <td class="wrap">{{ endpoint.zweck }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  <p class="hint">Die maschinenlesbare Beschreibung liegt unter
+    <a href="{{ url_for('api.openapi_document') }}" class="mono">/api/v1/openapi.json</a>
+    und lässt sich direkt in einen Client-Generator geben.</p>
+</div>
+
+<div class="card">
+  <h2>Kunde anlegen, Beispiel</h2>
+  <pre class="mono wrap">curl -X POST {{ base_url or 'https://portal.example' }}/api/v1/customers \
+  -H "Authorization: Bearer esm_xxxxxxxx_..." \
+  -H "Content-Type: application/json" \
+  -d '{
+        "key": "musterag",
+        "display_name": "Muster AG",
+        "tenant_id": "00000000-0000-0000-0000-000000000000",
+        "client_id": "11111111-1111-1111-1111-111111111111",
+        "auth_type": "secret",
+        "client_secret": "..."
+      }'</pre>
+  <p class="hint">Die Antwort enthält die Sensor-URLs. Zugangsdaten nimmt die Schnittstelle
+    entgegen, gibt sie aber nie heraus: zurück kommt nur, ob etwas hinterlegt ist und wann
+    ein Zertifikat abläuft.</p>
+</div>
+{% endblock %}

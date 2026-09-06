@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 
 from cryptography import x509
+from cryptography.exceptions import UnsupportedAlgorithm
 from cryptography.hazmat.primitives import hashes, serialization
 from sqlalchemy import delete, select
 
@@ -78,9 +79,24 @@ def inspect_certificate(cert_pem, key_pem):
     Rejects a certificate whose public key does not belong to the private
     key, which is the mistake that otherwise only shows up as a Graph error
     hours later during the first scheduled scan.
+
+    Jeder Parserfehler wird zu ValueError. Ein passwortgeschützter privater
+    Schlüssel wirft sonst TypeError und ein unbekanntes Verfahren
+    UnsupportedAlgorithm, was beide Aufrufer als Serverfehler durchreichten
+    statt als das, was es ist: eine Eingabe, die so nicht brauchbar ist.
     """
-    cert = x509.load_pem_x509_certificate(cert_pem.encode())
-    key = serialization.load_pem_private_key(key_pem.encode(), password=None)
+    try:
+        cert = x509.load_pem_x509_certificate(cert_pem.encode())
+    except (TypeError, UnsupportedAlgorithm) as exc:
+        raise ValueError("Das Zertifikat ist nicht lesbar: %s" % exc) from exc
+    try:
+        key = serialization.load_pem_private_key(key_pem.encode(), password=None)
+    except TypeError as exc:
+        raise ValueError("Der private Schlüssel ist mit einem Passwort geschützt. "
+                         "Erwartet wird ein unverschlüsselter PEM-Schlüssel.") from exc
+    except UnsupportedAlgorithm as exc:
+        raise ValueError("Der private Schlüssel verwendet ein nicht "
+                         "unterstütztes Verfahren.") from exc
     cert_pub = cert.public_key().public_bytes(
         serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo)
     key_pub = key.public_key().public_bytes(

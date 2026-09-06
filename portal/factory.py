@@ -79,15 +79,22 @@ def _load_user(user_id):
 
 def _register_blueprints(app):
     """Attach every route group and exempt the PRTG endpoint from CSRF."""
-    from portal.views import auth, customers, dashboard, docs, prtg, users
+    from portal.views import (api, apikeys, auth, customers, dashboard, docs,
+                          prtg, users)
 
     app.register_blueprint(auth.bp)
     app.register_blueprint(dashboard.bp)
     app.register_blueprint(customers.bp)
     app.register_blueprint(users.bp)
+    app.register_blueprint(apikeys.bp)
     app.register_blueprint(docs.bp)
     app.register_blueprint(prtg.bp)
+    app.register_blueprint(api.bp)
+    # Beide sprechen Programme an, nicht Browser. Ein CSRF-Token gibt es dort
+    # nicht, und ohne Sitzungscookie ist auch nichts zu schuetzen: die
+    # Berechtigung steckt im mitgeschickten Token, nicht im Browserzustand.
     csrf.exempt(prtg.bp)
+    csrf.exempt(api.bp)
 
 
 def _register_hooks(app, cfg):
@@ -127,24 +134,45 @@ def _register_hooks(app, cfg):
                          and current_user.role in (ROLE_ADMIN, ROLE_OPERATOR),
         }
 
+    def _fehlerseite(code, message, api_code):
+        """
+        Answer an error the way the caller can read it.
+
+        Unter /api/ sitzt ein Programm, das JSON erwartet. Bekaeme es die
+        gestylte HTML-Seite, meldete es einen Parserfehler statt der Ursache.
+        """
+        if request.path.startswith("/api/"):
+            from flask import jsonify
+            return jsonify({"error": {"code": api_code, "message": message}}), code
+        return render_template("error.html", code=code, message=message), code
+
     @app.errorhandler(403)
     def _forbidden(_error):
         """Render the styled error page instead of the Flask default."""
-        return render_template("error.html", code=403,
-                               message="Für diese Aktion fehlt die Berechtigung."), 403
+        return _fehlerseite(403, "Für diese Aktion fehlt die Berechtigung.", "forbidden")
 
     @app.errorhandler(404)
     def _not_found(_error):
         """Render the styled error page instead of the Flask default."""
-        return render_template("error.html", code=404,
-                               message="Seite nicht gefunden."), 404
+        return _fehlerseite(404, "Seite nicht gefunden.", "not_found")
+
+    @app.errorhandler(405)
+    def _method_not_allowed(_error):
+        """Render the styled error page instead of the Flask default."""
+        return _fehlerseite(405, "Diese Methode ist hier nicht erlaubt.",
+                            "method_not_allowed")
+
+    @app.errorhandler(413)
+    def _too_large(_error):
+        """The body exceeded MAX_CONTENT_LENGTH."""
+        return _fehlerseite(413, "Die Anfrage ist zu gross.", "payload_too_large")
 
     @app.errorhandler(500)
     def _server_error(error):
         """Log the exception and show a neutral page without a stack trace."""
         print("500: %s" % error, flush=True)
-        return render_template("error.html", code=500,
-                               message="Unerwarteter Fehler. Details stehen im Log."), 500
+        return _fehlerseite(500, "Unerwarteter Fehler. Details stehen im Log.",
+                            "internal_error")
 
 
 def _ensure_schema_row():

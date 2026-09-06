@@ -274,6 +274,68 @@ class AuditEvent(Base):
     __table_args__ = (Index("ix_audit_created", "created_at"),)
 
 
+# Rechte eines API-Schluessels. Lesen deckt Abfragen ab, Schreiben zusaetzlich
+# das Anlegen und Aendern von Kunden sowie das Ausloesen einer Pruefung.
+API_SCOPE_READ = "read"
+API_SCOPE_WRITE = "write"
+API_SCOPES = (API_SCOPE_READ, API_SCOPE_WRITE)
+
+# Der sichtbare Anfang eines Schluessels. Er steht im Klartext in der Datenbank,
+# damit eine Anfrage ohne Durchprobieren aller Hashes zugeordnet werden kann,
+# und er erlaubt es, einen Schluessel in einer Liste wiederzuerkennen.
+API_KEY_PREFIX_LENGTH = 8
+
+
+def new_api_key():
+    """
+    Return (vollstaendiger Schluessel, Praefix) for a fresh API key.
+
+    Das Format esm_<praefix>_<geheimnis> macht den Schluessel in Protokollen als
+    solchen erkennbar, was Werkzeuge zur Geheimnissuche brauchen, und trennt den
+    nachschlagbaren Teil vom geheimen.
+    """
+    praefix = secrets.token_hex(API_KEY_PREFIX_LENGTH // 2)
+    return "esm_%s_%s" % (praefix, secrets.token_urlsafe(32)), praefix
+
+
+class ApiKey(Base):
+    """
+    A machine account for the REST interface.
+
+    Bewusst kein User: ein Programm hat kein Passwort zu wechseln und keinen
+    zweiten Faktor. Gespeichert wird nur der Hash, der Schluessel selbst ist
+    nach dem Erzeugen nicht mehr herstellbar.
+    """
+
+    __tablename__ = "api_keys"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(128), unique=True, nullable=False)
+    prefix: Mapped[str] = mapped_column(String(16), unique=True, nullable=False)
+    key_hash: Mapped[str] = mapped_column(Text, nullable=False)
+    scope: Mapped[str] = mapped_column(String(16), default=API_SCOPE_READ, nullable=False)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    created_by: Mapped[str] = mapped_column(String(64), default="")
+    last_used_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=True)
+    revoked_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    @property
+    def is_active(self):
+        """True while the key has not been revoked."""
+        return self.revoked_at is None
+
+    @property
+    def may_write(self):
+        """True when the key is allowed to change anything."""
+        return self.is_active and self.scope == API_SCOPE_WRITE
+
+    @property
+    def scope_label(self):
+        """German label of the scope for display."""
+        return "Lesen und Schreiben" if self.scope == API_SCOPE_WRITE else "Nur Lesen"
+
+
 class SchemaInfo(Base):
     """Single row marker so a future migration can detect the schema level."""
 

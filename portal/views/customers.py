@@ -19,10 +19,9 @@ from portal.forms import ConfirmForm, CustomerForm
 from portal.models import (AUTH_CERT, CheckRun, CredentialSnapshot, Customer,
                            ROLE_ADMIN, new_token)
 from portal.scanner import data_age_hours, inspect_certificate
-from portal.views.docs import base_url
 from portal.views.dashboard import customer_state
-from portal.views.helpers import (config, form_errors, get_or_404, require_role,
-                                  require_write)
+from portal.views.helpers import (base_url, config, form_errors, get_or_404,
+                                  require_role, require_write)
 
 bp = Blueprint("customers", __name__, url_prefix="/kunden")
 
