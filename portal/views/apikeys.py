@@ -60,7 +60,7 @@ def create():
         return redirect(url_for("apikeys.index"))
 
     roh, praefix = new_api_key()
-    eintrag = ApiKey(name=name, prefix=praefix, key_hash=security.hash_password(roh),
+    eintrag = ApiKey(name=name, prefix=praefix, key_hash=security.hash_api_key(roh),
                      scope=form.scope.data, created_by=current_user.username)
     Session.add(eintrag)
     Session.commit()

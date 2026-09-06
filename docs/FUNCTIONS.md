@@ -9,7 +9,7 @@ Implementierungen derselben Sache werden.
 | Kennzahl | Wert |
 |---|---|
 | Module | 26 |
-| Funktionen | 251 |
+| Funktionen | 255 |
 | Ohne Docstring | 4 |
 | Namensdubletten | 0 |
 | Strukturdubletten | 0 |
@@ -261,22 +261,25 @@ nicht eine Ausnahme vom Aufräumen.
 
 | Zeile | Funktion | Rückgabe | Beschreibung |
 |---|---|---|---|
-| 44 | `normalize(value)` | Wert | Normalise unicode so visually identical inputs compare equal. |
-| 49 | `check_password_policy(password, min_length=12, username='', display_name='')` | Wert | Validate a password and return the list of violations, empty when fine. |
-| 89 | `assert_password_policy(password, min_length=12, username='', display_name='')` | kein Rückgabewert | Raise PolicyError with a readable message when the password is too weak. |
-| 96 | `hash_password(password)` | Wert | Return the Argon2id hash of a password. |
-| 101 | `verify_password(stored_hash, password)` | Wert | Constant time password check; False on any mismatch or broken hash. |
-| 115 | `dummy_verify(password)` | Wert | Burn the same time a real password check costs, for a missing account. |
-| 129 | `needs_rehash(stored_hash)` | Wert | True when the hash was produced with weaker parameters than the current ones. |
-| 137 | `suggest_password(length=20)` | Wert | Generate a policy compliant password for handing out a new account. |
-| 150 | `new_totp_secret()` | Wert | Return a fresh base32 TOTP secret. |
-| 155 | `totp_uri(secret, username, issuer)` | Wert | Build the otpauth:// URI an authenticator app scans. |
-| 160 | `verify_totp(secret, code, last_counter=0)` | Wert | Validate a six digit code with one step of clock tolerance. |
-| 181 | `new_recovery_codes(count=8)` | Wert | Generate readable single use recovery codes. |
-| 191 | `hash_recovery_code(code)` | Wert | Hash a recovery code with the same Argon2 parameters as a password. |
-| 196 | `verify_recovery_code(stored_hash, code)` | Wert | Check one recovery code against its stored hash. |
-| 204 | `encrypt_totp_secret(secret, key, username)` | Wert | Encrypt the TOTP secret, bound to the account it belongs to. |
-| 209 | `decrypt_totp_secret(stored, key, username)` | Wert | Decrypt the stored TOTP secret of one account. |
+| 45 | `normalize(value)` | Wert | Normalise unicode so visually identical inputs compare equal. |
+| 50 | `check_password_policy(password, min_length=12, username='', display_name='')` | Wert | Validate a password and return the list of violations, empty when fine. |
+| 90 | `assert_password_policy(password, min_length=12, username='', display_name='')` | kein Rückgabewert | Raise PolicyError with a readable message when the password is too weak. |
+| 97 | `hash_password(password)` | Wert | Return the Argon2id hash of a password. |
+| 102 | `verify_password(stored_hash, password)` | Wert | Constant time password check; False on any mismatch or broken hash. |
+| 116 | `dummy_verify(password)` | Wert | Burn the same time a real password check costs, for a missing account. |
+| 147 | `hash_api_key(raw)` | Wert | Hash one API key for storage. |
+| 152 | `verify_api_key(stored_hash, raw)` | Wert | Check a presented key against its stored hash. |
+| 167 | `api_key_needs_upgrade(stored_hash)` | Wert | True while a key is still stored in the old, slow form. |
+| 172 | `needs_rehash(stored_hash)` | Wert | True when the hash was produced with weaker parameters than the current ones. |
+| 180 | `suggest_password(length=20)` | Wert | Generate a policy compliant password for handing out a new account. |
+| 193 | `new_totp_secret()` | Wert | Return a fresh base32 TOTP secret. |
+| 198 | `totp_uri(secret, username, issuer)` | Wert | Build the otpauth:// URI an authenticator app scans. |
+| 203 | `verify_totp(secret, code, last_counter=0)` | Wert | Validate a six digit code with one step of clock tolerance. |
+| 224 | `new_recovery_codes(count=8)` | Wert | Generate readable single use recovery codes. |
+| 234 | `hash_recovery_code(code)` | Wert | Hash a recovery code with the same Argon2 parameters as a password. |
+| 239 | `verify_recovery_code(stored_hash, code)` | Wert | Check one recovery code against its stored hash. |
+| 247 | `encrypt_totp_secret(secret, key, username)` | Wert | Encrypt the TOTP secret, bound to the account it belongs to. |
+| 252 | `decrypt_totp_secret(stored, key, username)` | Wert | Decrypt the stored TOTP secret of one account. |
 
 ### `portal/serve.py`
 
@@ -291,41 +294,42 @@ nicht eine Ausnahme vom Aufräumen.
 | 85 | `_grenzen()` | Wert | Build the three limits from the running configuration. |
 | 96 | `_praefix(roh)` | Wert | The lookup prefix of a presented key, or empty when it has no shape. |
 | 102 | `_fehlversuch_kennung(roh)` | Wert | Identify what a failed authentication is counted against. |
-| 127 | `zu_schnell(wartezeit, meldung)` | Wert | One 429 with the header a well behaved client honours. |
-| 138 | `fehler(status, code, meldung, felder=None)` | Wert | Render one error response. |
-| 151 | `schluessel_aus_anfrage()` | Wert | Read the bearer token from the Authorization header, or None. |
-| 159 | `finde_schluessel(roh)` | Wert | Resolve a presented key to its record, or None. |
-| 181 | `authentifiziere(schreibend=False)` | Wert | Resolve and authorise the presented key, or return a ready error response. |
-| 258 | `benoetigt_schluessel(schreibend=False)` | Wert | Decorator: require a valid API key, optionally one that may write. |
-| 264 | `dekorator(sicht)` | Wert | _ohne Docstring_ |
-| 266 | `huelle(*args, **kwargs)` | Wert | _ohne Docstring_ |
-| 280 | `zeitstempel(wert)` | Wert | ISO 8601 in UTC, oder None. |
-| 289 | `sensor_urls(kunde)` | Wert | The externally reachable sensor URLs of one customer. |
-| 300 | `zustand_und_befunde(kunde, credentials)` | Wert | The overall state plus the readable findings for one customer. |
-| 315 | `kunde_als_json(kunde, mit_credentials=False)` | Wert | Render one customer. |
-| 367 | `credential_als_json(eintrag)` | Wert | Render one stored credential. Never carries a secret value. |
-| 382 | `hole_kunde(schluessel)` | Wert | Load a customer by its key, or None. |
-| 410 | `als_ganzzahl(wert)` | Wert | Read one integer from the request, or None when it is not one. |
-| 427 | `text(daten, feld, kunde=None, standard='')` | Wert | Read one text field, falling back to the stored value. |
-| 436 | `zahl(daten, feld, standard)` | Wert | Read one integer field, falling back to the given default. |
-| 441 | `pruefe_typen(daten)` | Wert | Reject fields whose type cannot be used, before anything touches them. |
-| 471 | `pruefe_schwellen(daten, kunde=None)` | Wert | Check the pair of thresholds in the state it would end up in. |
-| 492 | `pruefe_zugangsdaten(daten, kunde=None)` | Wert | Check that the resulting authentication method has usable material. |
-| 531 | `pruefe_anlage(daten)` | Wert | Validate the body of a create request, returning a dict of field errors. |
-| 550 | `pruefe_aenderung(daten, kunde)` | Wert | Validate a change against the state the customer would end up in. |
-| 559 | `uebernehme_zugangsdaten(kunde, daten, schluesselmaterial)` | kein Rückgabewert | Store the credential that matches the chosen method. |
-| 601 | `wurzel()` | Wert | Entry point: version and the available endpoints. |
-| 614 | `openapi_document()` | Wert | The machine readable description of this instance. |
-| 632 | `kunden_liste()` | Wert | List every customer with its current summary. |
-| 642 | `probleme()` | Wert | Only the customers that need attention, with a readable finding each. |
-| 685 | `kunde_anlegen()` | Wert | Create a customer, store its credential and schedule a daily slot. |
-| 732 | `kunde_lesen(key)` | Wert | One customer including its stored credentials. |
-| 742 | `kunde_aendern(key)` | Wert | Change a customer. Fields left out keep their value. |
-| 783 | `kunde_loeschen(key)` | Wert | Remove a customer with its history. |
-| 798 | `kunde_pruefen(key)` | Wert | Run a scan for this customer right now. |
-| 842 | `kunde_credentials(key)` | Wert | The stored credentials of one customer, shortest runtime first. |
-| 858 | `kunde_urls(key)` | Wert | The sensor URLs of one customer. |
-| 868 | `kunde_token(key)` | Wert | Issue a new PRTG token; the previous sensor URL stops serving data. |
+| 130 | `zu_schnell(wartezeit, meldung)` | Wert | One 429 with the header a well behaved client honours. |
+| 141 | `fehler(status, code, meldung, felder=None)` | Wert | Render one error response. |
+| 154 | `schluessel_aus_anfrage()` | Wert | Read the bearer token from the Authorization header, or None. |
+| 162 | `finde_schluessel(roh)` | Wert | Resolve a presented key to its record, or None. |
+| 189 | `authentifiziere(schreibend=False)` | Wert | Resolve and authorise the presented key, or return a ready error response. |
+| 265 | `benoetigt_schluessel(schreibend=False)` | Wert | Decorator: require a valid API key, optionally one that may write. |
+| 271 | `dekorator(sicht)` | Wert | _ohne Docstring_ |
+| 273 | `huelle(*args, **kwargs)` | Wert | _ohne Docstring_ |
+| 287 | `zeitstempel(wert)` | Wert | ISO 8601 in UTC, oder None. |
+| 296 | `sensor_urls(kunde)` | Wert | The externally reachable sensor URLs of one customer. |
+| 307 | `lade_credentials(kunden_ids)` | Wert | Load the stored credentials of many customers in one query. |
+| 328 | `zustand_und_befunde(kunde, credentials)` | Wert | The overall state plus the readable findings for one customer. |
+| 343 | `kunde_als_json(kunde, mit_credentials=False, credentials=None)` | Wert | Render one customer. |
+| 393 | `credential_als_json(eintrag)` | Wert | Render one stored credential. Never carries a secret value. |
+| 408 | `hole_kunde(schluessel)` | Wert | Load a customer by its key, or None. |
+| 436 | `als_ganzzahl(wert)` | Wert | Read one integer from the request, or None when it is not one. |
+| 453 | `text(daten, feld, kunde=None, standard='')` | Wert | Read one text field, falling back to the stored value. |
+| 462 | `zahl(daten, feld, standard)` | Wert | Read one integer field, falling back to the given default. |
+| 467 | `pruefe_typen(daten)` | Wert | Reject fields whose type cannot be used, before anything touches them. |
+| 497 | `pruefe_schwellen(daten, kunde=None)` | Wert | Check the pair of thresholds in the state it would end up in. |
+| 518 | `pruefe_zugangsdaten(daten, kunde=None)` | Wert | Check that the resulting authentication method has usable material. |
+| 557 | `pruefe_anlage(daten)` | Wert | Validate the body of a create request, returning a dict of field errors. |
+| 576 | `pruefe_aenderung(daten, kunde)` | Wert | Validate a change against the state the customer would end up in. |
+| 585 | `uebernehme_zugangsdaten(kunde, daten, schluesselmaterial)` | kein Rückgabewert | Store the credential that matches the chosen method. |
+| 627 | `wurzel()` | Wert | Entry point: version and the available endpoints. |
+| 640 | `openapi_document()` | Wert | The machine readable description of this instance. |
+| 658 | `kunden_liste()` | Wert | List every customer with its current summary. |
+| 670 | `probleme()` | Wert | Only the customers that need attention, with a readable finding each. |
+| 714 | `kunde_anlegen()` | Wert | Create a customer, store its credential and schedule a daily slot. |
+| 761 | `kunde_lesen(key)` | Wert | One customer including its stored credentials. |
+| 771 | `kunde_aendern(key)` | Wert | Change a customer. Fields left out keep their value. |
+| 812 | `kunde_loeschen(key)` | Wert | Remove a customer with its history. |
+| 827 | `kunde_pruefen(key)` | Wert | Run a scan for this customer right now. |
+| 871 | `kunde_credentials(key)` | Wert | The stored credentials of one customer, shortest runtime first. |
+| 887 | `kunde_urls(key)` | Wert | The sensor URLs of one customer. |
+| 897 | `kunde_token(key)` | Wert | Issue a new PRTG token; the previous sensor URL stops serving data. |
 
 ### `portal/views/apikeys.py`
 

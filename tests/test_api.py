@@ -1752,3 +1752,245 @@ class DiagnoseTests(unittest.TestCase):
                                          headers=self.kopf).get_json())
         self.assertNotIn(GEHEIM, roh)
         self.assertNotIn("client_secret_enc", roh)
+
+
+@needs_portal
+class LeistungTests(unittest.TestCase):
+    """
+    Zwei Eigenschaften, die sich leise wieder verschlechtern.
+
+    Gemessen bei 50 Kunden mit je 20 Zugangsdaten: die Kundenliste brauchte
+    53 Abfragen und 57 ms, ein einzelner Kunde 49 ms. Die 49 ms waren fast
+    vollständig Argon2 auf dem API-Schlüssel.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        from tests.test_portal import build_app
+
+        cls.app, cls.db_path = build_app()
+        cls.client = cls.app.test_client()
+        cls.context = cls.app.app_context()
+        cls.context.push()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.context.pop()
+        try:
+            os.unlink(cls.db_path)
+        except OSError:
+            pass
+
+    def setUp(self):
+        from portal import ratelimit
+        from portal.db import Session
+        from portal.models import ApiKey, Customer
+
+        for modell in (Customer, ApiKey):
+            for zeile in Session.query(modell).all():
+                Session.delete(zeile)
+        Session.commit()
+        ratelimit.zuruecksetzen()
+
+    def _schluessel(self, hasher=None):
+        """Issue one API key, optionally with the old slow hash."""
+        from portal import security
+        from portal.db import Session
+        from portal.models import API_SCOPE_WRITE, ApiKey, new_api_key
+
+        roh, praefix = new_api_key()
+        hasher = hasher or security.hash_api_key
+        Session.add(ApiKey(name="k" + praefix, prefix=praefix, scope=API_SCOPE_WRITE,
+                           key_hash=hasher(roh), created_by="test"))
+        Session.commit()
+        return roh
+
+    def _kunden(self, anzahl, credentials_je_kunde=5):
+        """Create customers with stored credentials, without going through Graph."""
+        from datetime import timedelta
+
+        from portal import crypto
+        from portal.db import Session
+        from portal.models import CredentialSnapshot, Customer, new_token, utcnow
+
+        cfg = self.app.config["PORTAL"]
+        jetzt = utcnow()
+        for i in range(anzahl):
+            kunde = Customer(
+                key="kunde%03d" % i, display_name="Kunde %03d" % i,
+                tenant_id="%08d-0001-4000-8000-%012d" % (i, i),
+                client_id="%08d-0002-4000-8000-%012d" % (i, i),
+                auth_type="secret", prtg_token=new_token(),
+                last_status="ok", last_check_at=jetzt - timedelta(hours=1))
+            kunde.client_secret_enc = crypto.encrypt(
+                "s", cfg.encryption_key,
+                crypto.aad_for("customer", kunde.key, "client_secret_enc"))
+            Session.add(kunde)
+            Session.flush()
+            tage = [(j * 37 + i) % 300 - 10 for j in range(credentials_je_kunde)]
+            for j, rest in enumerate(tage):
+                Session.add(CredentialSnapshot(
+                    customer_id=kunde.id, app_name="APP-%02d" % j, app_id="a",
+                    object_type="application", cred_type="secret", cred_name="c%d" % j,
+                    key_id="k%d" % j, end_date=jetzt + timedelta(days=rest, hours=6),
+                    days_left=rest))
+            kunde.count_total = len(tage)
+            kunde.min_days = min(tage)
+            kunde.count_expired = sum(1 for t in tage if t < 0)
+        Session.commit()
+
+    def _zaehle_abfragen(self, pfad, kopf):
+        """Count the SQL statements one request produces."""
+        from sqlalchemy import event
+
+        import portal.db as db
+
+        zaehler = {"n": 0}
+
+        def mitzaehlen(*args, **kwargs):
+            zaehler["n"] += 1
+
+        event.listen(db._engine, "before_cursor_execute", mitzaehlen)   # noqa: SLF001
+        try:
+            self.client.get(pfad, headers=kopf)                          # aufwaermen
+            zaehler["n"] = 0
+            antwort = self.client.get(pfad, headers=kopf)
+        finally:
+            event.remove(db._engine, "before_cursor_execute", mitzaehlen)  # noqa: SLF001
+        self.assertEqual(200, antwort.status_code)
+        return zaehler["n"], antwort.get_json()
+
+    # ------------------------------------------------------------------
+
+    def test_the_customer_list_does_not_query_once_per_customer(self):
+        """
+        Die Zahl der Abfragen darf nicht mit der Kundenzahl wachsen.
+
+        Vorher: 53 Abfragen bei 50 Kunden, weil jeder Kunde seine Zugangsdaten
+        einzeln nachlud. Der Test vergleicht zwei Grössen statt einer festen
+        Zahl, damit er nicht bei jeder harmlosen Änderung anschlägt.
+        """
+        kopf = {"Authorization": "Bearer " + self._schluessel()}
+
+        self._kunden(3)
+        wenige, _ = self._zaehle_abfragen("/api/v1/customers", kopf)
+        self.setUp()
+        kopf = {"Authorization": "Bearer " + self._schluessel()}
+        self._kunden(30)
+        viele, daten = self._zaehle_abfragen("/api/v1/customers", kopf)
+
+        self.assertEqual(30, daten["count"])
+        self.assertEqual(wenige, viele,
+                         "3 Kunden brauchten %d Abfragen, 30 Kunden %d"
+                         % (wenige, viele))
+
+    def test_the_problem_list_does_not_query_once_per_customer(self):
+        """Dasselbe für den Endpunkt, der die Befunde sammelt."""
+        kopf = {"Authorization": "Bearer " + self._schluessel()}
+
+        self._kunden(3)
+        wenige, _ = self._zaehle_abfragen("/api/v1/problems", kopf)
+        self.setUp()
+        kopf = {"Authorization": "Bearer " + self._schluessel()}
+        self._kunden(30)
+        viele, _ = self._zaehle_abfragen("/api/v1/problems", kopf)
+
+        self.assertEqual(wenige, viele,
+                         "3 Kunden brauchten %d Abfragen, 30 Kunden %d"
+                         % (wenige, viele))
+
+    def test_the_list_still_returns_the_credentials_of_the_right_customer(self):
+        """
+        Eine Sammelabfrage kann Zeilen dem falschen Kunden zuordnen.
+
+        Deshalb nicht nur zählen, sondern prüfen: jeder Kunde muss genau seine
+        eigenen Zugangsdaten tragen.
+        """
+        kopf = {"Authorization": "Bearer " + self._schluessel()}
+        self._kunden(5, credentials_je_kunde=4)
+
+        _, liste = self._zaehle_abfragen("/api/v1/customers", kopf)
+        for eintrag in liste["customers"]:
+            einzeln = self.client.get("/api/v1/customers/" + eintrag["key"],
+                                      headers=kopf).get_json()
+            self.assertEqual(eintrag["summary"], einzeln["summary"], eintrag["key"])
+            self.assertEqual(eintrag["problems"], einzeln["problems"], eintrag["key"])
+            self.assertEqual(4, len(einzeln["credentials"]))
+
+    # ------------------------------------------------------------------
+
+    def test_an_api_key_is_not_hashed_like_a_password(self):
+        """
+        Argon2 macht ein Passwort teuer, weil ein Mensch wenig Entropie wählt.
+
+        Ein Schlüssel aus `secrets.token_urlsafe(32)` trägt 256 Bit. Die Kosten
+        träfen nur den, der den Schlüssel richtig mitschickt: gemessen 45 ms je
+        Anfrage.
+        """
+        from portal import security
+
+        roh = "esm_deadbeef_" + "x" * 43
+        gespeichert = security.hash_api_key(roh)
+        self.assertTrue(gespeichert.startswith("sha256$"))
+        self.assertNotIn(roh, gespeichert)
+        self.assertTrue(security.verify_api_key(gespeichert, roh))
+        self.assertFalse(security.verify_api_key(gespeichert, roh + "x"))
+        self.assertFalse(security.verify_api_key("", roh))
+
+    def test_a_key_from_before_the_change_still_works(self):
+        """Ein Neuausstellen aller Schlüssel wäre der Preis gewesen."""
+        from portal import security
+
+        roh = self._schluessel(hasher=security.hash_password)
+        antwort = self.client.get("/api/v1/customers",
+                                  headers={"Authorization": "Bearer " + roh})
+        self.assertEqual(200, antwort.status_code)
+
+    def test_an_old_key_is_upgraded_on_first_use(self):
+        """
+        Sonst zahlte ein bestehender Schlüssel die 45 ms für immer weiter.
+
+        Umgestellt wird erst nach erfolgreicher Prüfung, ein Fehlversuch darf
+        nichts schreiben.
+        """
+        from portal import security
+        from portal.db import Session
+        from portal.models import ApiKey
+
+        roh = self._schluessel(hasher=security.hash_password)
+        eintrag = Session.query(ApiKey).one()
+        self.assertTrue(security.api_key_needs_upgrade(eintrag.key_hash))
+
+        self.client.get("/api/v1/customers",
+                        headers={"Authorization": "Bearer " + roh})
+        Session.expire_all()
+        eintrag = Session.query(ApiKey).one()
+        self.assertFalse(security.api_key_needs_upgrade(eintrag.key_hash))
+        self.assertTrue(security.verify_api_key(eintrag.key_hash, roh))
+
+    def test_a_failed_attempt_does_not_upgrade_anything(self):
+        """Ein falscher Schlüssel darf den gespeicherten Hash nicht anfassen."""
+        from portal import security
+        from portal.db import Session
+        from portal.models import ApiKey
+
+        roh = self._schluessel(hasher=security.hash_password)
+        vorher = Session.query(ApiKey).one().key_hash
+        praefix = roh.split("_")[1]
+        self.client.get("/api/v1/customers", headers={
+            "Authorization": "Bearer esm_%s_%s" % (praefix, "y" * 43)})
+        Session.expire_all()
+        self.assertEqual(vorher, Session.query(ApiKey).one().key_hash)
+
+    def test_passwords_keep_the_slow_hash(self):
+        """
+        Die Umstellung gilt nur für Schlüssel.
+
+        Ein Passwort hat wenig Entropie, dort ist der Aufwand der Sinn der
+        Sache.
+        """
+        from portal import security
+
+        gespeichert = security.hash_password("Zaun#Kies7Vogel!Lampe")
+        self.assertTrue(gespeichert.startswith("$argon2"))
+        self.assertTrue(security.verify_password(gespeichert, "Zaun#Kies7Vogel!Lampe"))

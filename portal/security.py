@@ -10,6 +10,7 @@ encrypted at rest, because a stolen database would otherwise hand over the
 second factor together with the first.
 """
 
+import hashlib
 import hmac
 import re
 import secrets
@@ -124,6 +125,48 @@ def dummy_verify(password):
     hash is therefore computed once at import, with the parameters in use.
     """
     return verify_password(_DUMMY_HASH, password)
+
+
+# --------------------------------------------------------------------------
+# API-Schluessel
+# --------------------------------------------------------------------------
+
+# Argon2 existiert, um ein Passwort teuer zu machen: ein Mensch waehlt etwa
+# vierzig Bit Entropie, und ohne kuenstliche Kosten waere das offline in
+# Stunden durchprobiert. Ein API-Schluessel aus secrets.token_urlsafe(32)
+# traegt 256 Bit. Den durchzuprobieren ist unabhaengig von der Hashgeschwindigkeit
+# aussichtslos, und die Kosten trifft nur den, der den Schluessel richtig
+# mitschickt: gemessen 45 ms je Anfrage, gegenueber 0.0006 ms fuer SHA-256.
+#
+# Deshalb ein schneller Hash fuer Schluessel und Argon2 weiterhin fuer
+# Passwoerter. Kein Salt: der schuetzt gegen vorberechnete Tabellen, und die
+# gibt es fuer zufaellige 256-Bit-Werte nicht.
+API_HASH_PRAEFIX = "sha256$"
+
+
+def hash_api_key(raw):
+    """Hash one API key for storage."""
+    return API_HASH_PRAEFIX + hashlib.sha256(raw.encode()).hexdigest()
+
+
+def verify_api_key(stored_hash, raw):
+    """
+    Check a presented key against its stored hash.
+
+    Nimmt auch die alte Argon2-Form an, damit Schluessel, die vor der
+    Umstellung ausgestellt wurden, weiter funktionieren. Der Aufrufer sieht an
+    api_key_needs_upgrade, ob er den Eintrag danach erneuern soll.
+    """
+    if not stored_hash:
+        return False
+    if stored_hash.startswith(API_HASH_PRAEFIX):
+        return hmac.compare_digest(stored_hash, hash_api_key(raw))
+    return verify_password(stored_hash, raw)
+
+
+def api_key_needs_upgrade(stored_hash):
+    """True while a key is still stored in the old, slow form."""
+    return bool(stored_hash) and not stored_hash.startswith(API_HASH_PRAEFIX)
 
 
 def needs_rehash(stored_hash):

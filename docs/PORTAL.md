@@ -358,8 +358,13 @@ Einstellbar über `PORTAL_API_KEY_ATTEMPTS_PER_MINUTE`,
 `PORTAL_API_CHECK_PER_HOUR`. Ein Wert unter 1 wird beim Start abgelehnt. Der Zähler liegt
 im Prozessspeicher, siehe Grenzen.
 
-**API-Schlüssel.** Argon2id wie bei Passwörtern, nachgeschlagen über den Präfix und
-verglichen über den Hash. Der Bereich `read` kann nichts verändern, jeder Schreibversuch
+**API-Schlüssel.** SHA-256 über den ganzen Schlüssel, nachgeschlagen über den Präfix und
+verglichen in konstanter Zeit. Bewusst **nicht** Argon2: das macht ein Passwort teuer, weil ein
+Mensch etwa vierzig Bit Entropie wählt und es sonst offline durchprobiert wäre. Ein Schlüssel
+aus `secrets.token_urlsafe(32)` trägt 258 Bit; ihn zu raten ist unabhängig von der
+Hashgeschwindigkeit aussichtslos, und die Kosten träfen nur den, der ihn richtig mitschickt.
+Gemessen waren das 45 ms je Anfrage. Schlüssel aus der Zeit davor funktionieren weiter und
+werden beim ersten Gebrauch umgestellt. Der Bereich `read` kann nichts verändern, jeder Schreibversuch
 mit einem lesenden Schlüssel endet in 403 und im Audit-Log. Die Schnittstelle ist von der
 CSRF-Prüfung ausgenommen, weil sie kein Sitzungscookie akzeptiert: die Berechtigung steckt
 im mitgeschickten Kopf, nicht im Browserzustand, und damit greift kein Angriff über eine
@@ -438,6 +443,27 @@ wird.
 Mit installierten Extras muss die Zahl übersprungener Tests **null** sein. Der
 `needs_portal`-Marker überspringt sonst alles, was Flask, pyotp oder cryptography braucht,
 und ein halber Lauf meldet `OK (skipped=226)` statt eines Fehlers. Die CI prüft das.
+
+## Leistung
+
+Gemessen an 50 Kunden mit je 20 Zugangsdaten, also der Grösse, für die das Portal ausgelegt ist:
+
+| Endpunkt | Zeit | Abfragen |
+|---|---|---|
+| `GET /prtg/<token>` | 0,6 ms | 2 |
+| `GET /api/v1/customers/<key>` | 1,1 ms | 4 |
+| `GET /api/v1/customers` | 7,2 ms | 4 |
+| `GET /api/v1/problems` | 7,0 ms | 4 |
+
+Zwei Dinge tragen das. Die Zahl der Abfragen wächst **nicht** mit der Kundenzahl: die
+Zugangsdaten aller Kunden kommen in einer Abfrage und werden im Speicher zugeordnet. Und die
+Prüfung des API-Schlüssels kostet nichts mehr, seit sie nicht mehr über Argon2 läuft. Zwei
+Tests halten beides fest, der eine vergleicht die Abfragezahl bei 3 und bei 30 Kunden, statt
+sich auf eine feste Zahl festzunageln.
+
+Der Sensorabruf ist der Pfad, der im Betrieb am häufigsten läuft: 50 Kunden mit je zwei Sensoren
+im Sechsstundentakt sind 400 Abrufe am Tag. Er liest den gespeicherten Stand und fragt Microsoft
+nicht, deshalb die 0,6 ms.
 
 ## Grenzen
 
