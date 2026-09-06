@@ -191,7 +191,8 @@ Authorization: Bearer esm_xxxxxxxx_...
 |---|---|---|---|
 | GET | `/api/v1/` | read | Version und Endpunktverzeichnis |
 | GET | `/api/v1/openapi.json` | read | Maschinenlesbare Beschreibung |
-| GET | `/api/v1/customers` | read | Alle Kunden mit Zusammenfassung |
+| GET | `/api/v1/customers` | read | Alle Kunden mit Zusammenfassung und Befunden |
+| GET | `/api/v1/problems` | read | Nur die Kunden, bei denen etwas nicht stimmt |
 | POST | `/api/v1/customers` | write | Kunde anlegen |
 | GET | `/api/v1/customers/<key>` | read | Ein Kunde samt Laufzeiten |
 | PATCH | `/api/v1/customers/<key>` | write | Ändern, weggelassene Felder bleiben stehen |
@@ -223,6 +224,58 @@ die Antwort trägt das Ergebnis.
 
 Statt eines Secrets nimmt `auth_type: "certificate"` ein Paar aus `cert_pem` und
 `key_pem` entgegen. Der private Schlüssel muss unverschlüsselt sein.
+
+### Befunde statt Rohtext
+
+Ein anbindendes System will nicht wissen, dass Microsoft `AADSTS7000215` gesagt hat, sondern
+was zu tun ist. Jeder Kunde trägt deshalb zwei zusätzliche Felder.
+
+`state` ist der Gesamtzustand, dieselbe Bewertung wie in der Oberfläche: `ok`, `warn`, `error`,
+`stale`, `unknown` oder `inactive`. Wichtig daran ist die Veraltungsregel: alte Zahlen schlagen
+eine grüne Restlaufzeit, denn eine Prüfung von vor vier Tagen sagt nichts über heute. Wer das
+selbst nachbaut, übersieht genau diesen Fall.
+
+`problems` ist eine Liste von Befunden, schwerster zuerst, und leer, wenn nichts anliegt. Jeder
+Befund hat einen Code für die Maschine, einen Satz für den Menschen und, wo es einen gibt, den
+nächsten Schritt:
+
+```json
+{
+  "code": "scan_failed",
+  "severity": "error",
+  "message": "Das hinterlegte Client Secret ist falsch oder wurde inzwischen erneuert.",
+  "action": "Im Kundentenant ein neues Secret erzeugen und hier hinterlegen.",
+  "entra_code": "AADSTS7000215",
+  "detail": "GraphError: Token-Endpoint HTTP 401: ..."
+}
+```
+
+Der Rohtext bleibt in `detail`, weil er bei einer Rückfrage an Microsoft gebraucht wird. Er ist
+nur nicht mehr das Einzige, was herauskommt.
+
+| Code | Bedeutet |
+|---|---|
+| `scan_failed` | Die letzte Prüfung schlug fehl. Sieben Entra-Kennungen sind übersetzt, dazu Netzwerk-, Berechtigungs- und Drosselungsfehler |
+| `credential_expired` | Zugangsdaten des Kunden sind bereits abgelaufen |
+| `credential_critical` | unter der Fehlergrenze dieses Kunden |
+| `credential_warning` | unter der Warngrenze dieses Kunden |
+| `data_stale` | Die Zahlen sind älter als `PORTAL_STALE_HOURS` |
+| `never_checked` | Noch kein erfolgreicher Lauf |
+| `no_credential` | Kein Secret und kein Zertifikat hinterlegt, es kann nicht geprüft werden |
+| `own_certificate_expired` / `_expiring` | Das Zertifikat, mit dem sich das Portal anmeldet, läuft ab. Der Kunde wird dabei nicht rot, seine eigenen Zugangsdaten sind ja in Ordnung, aber die Überwachung endet |
+| `inactive` | Überwachung abgeschaltet. Dann steht dieser Befund allein, alte Zahlen wären bedeutungslos |
+
+### Nur die Auffälligen holen
+
+`GET /api/v1/problems` liefert ausschliesslich die Kunden mit mindestens einem Befund, sortiert
+nach Dringlichkeit. Der erste Eintrag ist der, den jemand zuerst ansehen sollte.
+
+```bash
+curl -H "Authorization: Bearer esm_..." https://<portal>/api/v1/problems?severity=error
+```
+
+`?severity=` grenzt auf `error`, `warn` oder `info` ein. `count` sagt, wie viele Kunden einen
+Befund haben, `checked_customers` wie viele es insgesamt gibt.
 
 ### Zugangsdaten: entgegennehmen, nie herausgeben
 

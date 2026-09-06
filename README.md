@@ -262,6 +262,12 @@ through `Authorization: Bearer esm_...`.
 Credentials go in and never come back out. A response tells whether a credential is
 stored and, for a certificate, its thumbprint and expiry, never the secret itself.
 
+Every customer also carries a `state` and a list of `problems`: a machine readable
+code, a sentence saying what is wrong, and the next step where there is one. Seven
+Entra error codes are translated, so `AADSTS7000215` arrives as "the stored client
+secret is wrong or has since been renewed" rather than as a code to look up.
+`GET /api/v1/problems` returns only the customers that need attention, worst first.
+
 The machine readable description lives at `/api/v1/openapi.json`. Full documentation in
 [docs/PORTAL.md](docs/PORTAL.md#rest-schnittstelle).
 

@@ -8,8 +8,8 @@ Implementierungen derselben Sache werden.
 
 | Kennzahl | Wert |
 |---|---|
-| Module | 25 |
-| Funktionen | 243 |
+| Module | 26 |
+| Funktionen | 251 |
 | Ohne Docstring | 4 |
 | Namensdubletten | 0 |
 | Strukturdubletten | 0 |
@@ -150,6 +150,17 @@ nicht eine Ausnahme vom Aufräumen.
 | 64 | `remove_session(_exception=None)` | kein Rückgabewert | Drop the request bound session, registered as Flask teardown handler. |
 | 70 | `session_scope()` | Generator | Provide a transactional session for background work outside a request. |
 
+### `portal/diagnose.py`
+
+| Zeile | Funktion | Rückgabe | Beschreibung |
+|---|---|---|---|
+| 81 | `_befund(code, schwere, meldung, massnahme=None, **felder)` | Wert | One finding: machine readable code, a sentence, optionally what to do. |
+| 90 | `erklaere_lauffehler(rohtext)` | Wert | Turn the stored error text into a readable finding. |
+| 112 | `_liste(credentials)` | Wert | Readable names of the affected credentials, sorted and without repeats. |
+| 118 | `_satz(namen, einzahl, mehrzahl)` | Wert | Build the sentence in the right number. |
+| 131 | `_ablaufende(credentials, kunde)` | Wert | Findings about the credentials this customer has in its tenant. |
+| 174 | `befunde(kunde, credentials, stale_hours)` | Wert | Every finding for one customer, most severe first. |
+
 ### `portal/factory.py`
 
 | Zeile | Funktion | Rückgabe | Beschreibung |
@@ -202,10 +213,10 @@ nicht eine Ausnahme vom Aufräumen.
 
 | Zeile | Funktion | Rückgabe | Beschreibung |
 |---|---|---|---|
-| 166 | `_json(schema_ref)` | Wert | Shorthand for one application/json body of the given schema. |
-| 171 | `_antwort(beschreibung, schema_ref=None)` | Wert | One response entry, with or without a body. |
-| 179 | `_operation(endpunkt, extras)` | Wert | Build one operation object from a directory entry plus its specifics. |
-| 287 | `build(base_url, instance_name, endpunkte)` | Wert | Render the OpenAPI document of this instance. |
+| 205 | `_json(schema_ref)` | Wert | Shorthand for one application/json body of the given schema. |
+| 210 | `_antwort(beschreibung, schema_ref=None)` | Wert | One response entry, with or without a body. |
+| 218 | `_operation(endpunkt, extras)` | Wert | Build one operation object from a directory entry plus its specifics. |
+| 360 | `build(base_url, instance_name, endpunkte)` | Wert | Render the OpenAPI document of this instance. |
 
 ### `portal/ratelimit.py`
 
@@ -277,42 +288,44 @@ nicht eine Ausnahme vom Aufräumen.
 
 | Zeile | Funktion | Rückgabe | Beschreibung |
 |---|---|---|---|
-| 83 | `_grenzen()` | Wert | Build the three limits from the running configuration. |
-| 94 | `_praefix(roh)` | Wert | The lookup prefix of a presented key, or empty when it has no shape. |
-| 100 | `_fehlversuch_kennung(roh)` | Wert | Identify what a failed authentication is counted against. |
-| 125 | `zu_schnell(wartezeit, meldung)` | Wert | One 429 with the header a well behaved client honours. |
-| 136 | `fehler(status, code, meldung, felder=None)` | Wert | Render one error response. |
-| 149 | `schluessel_aus_anfrage()` | Wert | Read the bearer token from the Authorization header, or None. |
-| 157 | `finde_schluessel(roh)` | Wert | Resolve a presented key to its record, or None. |
-| 179 | `authentifiziere(schreibend=False)` | Wert | Resolve and authorise the presented key, or return a ready error response. |
-| 256 | `benoetigt_schluessel(schreibend=False)` | Wert | Decorator: require a valid API key, optionally one that may write. |
-| 262 | `dekorator(sicht)` | Wert | _ohne Docstring_ |
-| 264 | `huelle(*args, **kwargs)` | Wert | _ohne Docstring_ |
-| 278 | `zeitstempel(wert)` | Wert | ISO 8601 in UTC, oder None. |
-| 287 | `sensor_urls(kunde)` | Wert | The externally reachable sensor URLs of one customer. |
-| 298 | `kunde_als_json(kunde, mit_credentials=False)` | Wert | Render one customer. |
-| 342 | `credential_als_json(eintrag)` | Wert | Render one stored credential. Never carries a secret value. |
-| 357 | `hole_kunde(schluessel)` | Wert | Load a customer by its key, or None. |
-| 385 | `als_ganzzahl(wert)` | Wert | Read one integer from the request, or None when it is not one. |
-| 402 | `text(daten, feld, kunde=None, standard='')` | Wert | Read one text field, falling back to the stored value. |
-| 411 | `zahl(daten, feld, standard)` | Wert | Read one integer field, falling back to the given default. |
-| 416 | `pruefe_typen(daten)` | Wert | Reject fields whose type cannot be used, before anything touches them. |
-| 446 | `pruefe_schwellen(daten, kunde=None)` | Wert | Check the pair of thresholds in the state it would end up in. |
-| 467 | `pruefe_zugangsdaten(daten, kunde=None)` | Wert | Check that the resulting authentication method has usable material. |
-| 506 | `pruefe_anlage(daten)` | Wert | Validate the body of a create request, returning a dict of field errors. |
-| 525 | `pruefe_aenderung(daten, kunde)` | Wert | Validate a change against the state the customer would end up in. |
-| 534 | `uebernehme_zugangsdaten(kunde, daten, schluesselmaterial)` | kein Rückgabewert | Store the credential that matches the chosen method. |
-| 576 | `wurzel()` | Wert | Entry point: version and the available endpoints. |
-| 589 | `openapi_document()` | Wert | The machine readable description of this instance. |
-| 607 | `kunden_liste()` | Wert | List every customer with its current summary. |
-| 617 | `kunde_anlegen()` | Wert | Create a customer, store its credential and schedule a daily slot. |
-| 664 | `kunde_lesen(key)` | Wert | One customer including its stored credentials. |
-| 674 | `kunde_aendern(key)` | Wert | Change a customer. Fields left out keep their value. |
-| 715 | `kunde_loeschen(key)` | Wert | Remove a customer with its history. |
-| 730 | `kunde_pruefen(key)` | Wert | Run a scan for this customer right now. |
-| 774 | `kunde_credentials(key)` | Wert | The stored credentials of one customer, shortest runtime first. |
-| 790 | `kunde_urls(key)` | Wert | The sensor URLs of one customer. |
-| 800 | `kunde_token(key)` | Wert | Issue a new PRTG token; the previous sensor URL stops serving data. |
+| 85 | `_grenzen()` | Wert | Build the three limits from the running configuration. |
+| 96 | `_praefix(roh)` | Wert | The lookup prefix of a presented key, or empty when it has no shape. |
+| 102 | `_fehlversuch_kennung(roh)` | Wert | Identify what a failed authentication is counted against. |
+| 127 | `zu_schnell(wartezeit, meldung)` | Wert | One 429 with the header a well behaved client honours. |
+| 138 | `fehler(status, code, meldung, felder=None)` | Wert | Render one error response. |
+| 151 | `schluessel_aus_anfrage()` | Wert | Read the bearer token from the Authorization header, or None. |
+| 159 | `finde_schluessel(roh)` | Wert | Resolve a presented key to its record, or None. |
+| 181 | `authentifiziere(schreibend=False)` | Wert | Resolve and authorise the presented key, or return a ready error response. |
+| 258 | `benoetigt_schluessel(schreibend=False)` | Wert | Decorator: require a valid API key, optionally one that may write. |
+| 264 | `dekorator(sicht)` | Wert | _ohne Docstring_ |
+| 266 | `huelle(*args, **kwargs)` | Wert | _ohne Docstring_ |
+| 280 | `zeitstempel(wert)` | Wert | ISO 8601 in UTC, oder None. |
+| 289 | `sensor_urls(kunde)` | Wert | The externally reachable sensor URLs of one customer. |
+| 300 | `zustand_und_befunde(kunde, credentials)` | Wert | The overall state plus the readable findings for one customer. |
+| 315 | `kunde_als_json(kunde, mit_credentials=False)` | Wert | Render one customer. |
+| 367 | `credential_als_json(eintrag)` | Wert | Render one stored credential. Never carries a secret value. |
+| 382 | `hole_kunde(schluessel)` | Wert | Load a customer by its key, or None. |
+| 410 | `als_ganzzahl(wert)` | Wert | Read one integer from the request, or None when it is not one. |
+| 427 | `text(daten, feld, kunde=None, standard='')` | Wert | Read one text field, falling back to the stored value. |
+| 436 | `zahl(daten, feld, standard)` | Wert | Read one integer field, falling back to the given default. |
+| 441 | `pruefe_typen(daten)` | Wert | Reject fields whose type cannot be used, before anything touches them. |
+| 471 | `pruefe_schwellen(daten, kunde=None)` | Wert | Check the pair of thresholds in the state it would end up in. |
+| 492 | `pruefe_zugangsdaten(daten, kunde=None)` | Wert | Check that the resulting authentication method has usable material. |
+| 531 | `pruefe_anlage(daten)` | Wert | Validate the body of a create request, returning a dict of field errors. |
+| 550 | `pruefe_aenderung(daten, kunde)` | Wert | Validate a change against the state the customer would end up in. |
+| 559 | `uebernehme_zugangsdaten(kunde, daten, schluesselmaterial)` | kein Rückgabewert | Store the credential that matches the chosen method. |
+| 601 | `wurzel()` | Wert | Entry point: version and the available endpoints. |
+| 614 | `openapi_document()` | Wert | The machine readable description of this instance. |
+| 632 | `kunden_liste()` | Wert | List every customer with its current summary. |
+| 642 | `probleme()` | Wert | Only the customers that need attention, with a readable finding each. |
+| 685 | `kunde_anlegen()` | Wert | Create a customer, store its credential and schedule a daily slot. |
+| 732 | `kunde_lesen(key)` | Wert | One customer including its stored credentials. |
+| 742 | `kunde_aendern(key)` | Wert | Change a customer. Fields left out keep their value. |
+| 783 | `kunde_loeschen(key)` | Wert | Remove a customer with its history. |
+| 798 | `kunde_pruefen(key)` | Wert | Run a scan for this customer right now. |
+| 842 | `kunde_credentials(key)` | Wert | The stored credentials of one customer, shortest runtime first. |
+| 858 | `kunde_urls(key)` | Wert | The sensor URLs of one customer. |
+| 868 | `kunde_token(key)` | Wert | Issue a new PRTG token; the previous sensor URL stops serving data. |
 
 ### `portal/views/apikeys.py`
 
