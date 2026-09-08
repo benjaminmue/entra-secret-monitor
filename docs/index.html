@@ -487,9 +487,10 @@ curl -X POST https://portal/api/v1/customers \
         <p>Runs as UID 10001, read-only root filesystem, no new privileges.</p>
       </div>
       <div>
-        <h3>Certificate or secret</h3>
-        <p>Certificate authentication is preferred, since Entra caps secrets at
-           24 months.</p>
+        <h3>Secret or certificate</h3>
+        <p>A client secret is the normal way and works in every tenant. Its
+           expiry is what this watches. Certificates for tenants that restrict
+           secrets.</p>
       </div>
       <div>
         <h3>Tested</h3>

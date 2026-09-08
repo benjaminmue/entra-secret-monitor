@@ -545,6 +545,18 @@ class CustomerKeyRuleTests(unittest.TestCase):
         seite = self.client.get("/kunden/neu").get_data(as_text=True)
         self.assertIn("Nur Kleinbuchstaben", seite)
 
+    def test_client_secret_is_the_offered_default(self):
+        # Das Secret funktioniert in jedem Tenant und auf jedem Host. Das
+        # Zertifikat bleibt fuer Tenants, die Secrets per Richtlinie
+        # einschraenken, ist aber nicht mehr der Vorschlag.
+        seite = self.client.get("/kunden/neu").get_data(as_text=True)
+        self.assertIn('selected value="secret"', seite.replace("' ", "'"))
+        self.assertIn("Client Secret (empfohlen)", seite)
+
+        from portal.models import AUTH_SECRET, Customer
+        self.assertEqual(AUTH_SECRET, Customer.__table__.c.auth_type.default.arg,
+                         "die Vorgabe im Modell weicht vom Formular ab")
+
     def test_the_auth_fields_are_tagged_for_the_method_they_belong_to(self):
         # The toggle hides what the chosen method does not use. Without the
         # markers the script has nothing to switch and every field stays visible.

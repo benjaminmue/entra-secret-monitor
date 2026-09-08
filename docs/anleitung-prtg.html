@@ -64,39 +64,43 @@ Zertifikat in einem Durchgang.</p>
     <h3>Script ausführen</h3>
 <pre><code>./New-MonitorAppRegistration.ps1 `
   -TenantId 8f3a1c22-9b41-4d7e-a512-6ce0f9b27d44 `
-  -TenantKey contoso `
-  -CreateCertificate `
-  -CertificateYears 3</code></pre>
+  -TenantKey contoso</code></pre>
+    <p>Ohne weiteren Schalter entsteht ein <strong>Client Secret</strong>. Das ist der
+    Normalfall: es funktioniert in jedem Tenant, und auf der PRTG-Instanz entfällt damit
+    der Zertifikatsimport samt Rechtevergabe, also der Schritt, der am häufigsten
+    schiefgeht.</p>
 
     <figure>
       <img src="assets/ps-kunde-anlegen.webp" alt="PowerShell-Fenster mit der Ausgabe des Scripts: App-Registrierung, Service Principal, erteilte Berechtigung Application.Read.All, erzeugtes Zertifikat mit Fingerabdruck und Konfigurationsblock." loading="lazy">
-      <figcaption>Für den Sensor werden drei Werte gebraucht: Tenant-ID, AppId und der
-      Fingerabdruck des Zertifikats.</figcaption>
+      <figcaption>Für den Sensor werden drei Werte gebraucht: Tenant-ID, AppId und das
+      Client Secret. Sie gehen in die Platzhalter 1 bis 3 am Gerät.</figcaption>
     </figure>
   </div>
 </div>
 
-<div class="step">
-  <div class="n">2</div>
-  <div class="body">
-    <h3>Zertifikat auf die PRTG-Instanz bringen</h3>
-    <p>Der Sensor liest den privaten Schlüssel aus dem Zertifikatsspeicher, nicht aus einer
-    Datei. Aus den beiden PEM-Dateien wird deshalb eine PFX gebaut und importiert:</p>
+<div class="note">
+  <p>Das Secret landet in den Sensorparametern und damit in der Kommandozeile des
+  Sensorprozesses, die jeder lokale Prozess mitlesen kann. Auf der PRTG-Instanz sind das
+  Administratoren, in den meisten Umgebungen also vertretbar. Wer das nicht will oder in
+  einem Tenant arbeitet, der Client Secrets verbietet, nimmt den Zertifikatsweg unten.</p>
+</div>
+
+<details>
+  <summary><strong>Sonderfall: Zertifikat statt Secret</strong></summary>
+  <p>Nötig, wenn eine App Management Policy im Kundentenant Client Secrets verbietet oder
+  auf wenige Monate begrenzt. Das Script bekommt dann <code>-CreateCertificate</code>, und
+  auf der PRTG-Instanz kommt Arbeit dazu: der Sensor liest den privaten Schlüssel aus dem
+  Zertifikatsspeicher, nicht aus einer Datei.</p>
 <pre><code>openssl pkcs12 -export -inkey contoso.key -in contoso.crt -out contoso.pfx
 
 Import-PfxCertificate -FilePath .\contoso.pfx `
   -CertStoreLocation Cert:\LocalMachine\My</code></pre>
-    <p>Danach in <code>certlm.msc</code> das Zertifikat suchen, Rechtsklick, <em>Alle Aufgaben</em>,
-    <em>Private Schlüssel verwalten</em>, und dem Dienstkonto von PRTG Leserecht geben.
-    Ohne diesen Schritt findet der Sensor das Zertifikat, kann es aber nicht benutzen.</p>
-  </div>
-</div>
-
-<div class="note">
-  <p>Alternativ geht auch ein Client Secret. Es steht dann allerdings in der Kommandozeile
-  des Sensorprozesses, und Entra kappt es nach spätestens 24 Monaten. Beim Zertifikat steht
-  in den Parametern nur der Fingerabdruck, und der ist kein Geheimnis.</p>
-</div>
+  <p>Danach in <code>certlm.msc</code> das Zertifikat suchen, Rechtsklick, <em>Alle Aufgaben</em>,
+  <em>Private Schlüssel verwalten</em>, und dem Dienstkonto von PRTG Leserecht geben.
+  Ohne diesen Schritt findet der Sensor das Zertifikat, kann es aber nicht benutzen.
+  In den Sensorparametern steht dann <code>-CertificateThumbprint</code> statt
+  <code>-ClientSecret</code>, und Platzhalter 3 bleibt leer.</p>
+</details>
 
 <h2>Teil 2: Script auf der Instanz ablegen</h2>
 
@@ -139,7 +143,7 @@ Set-ExecutionPolicy -Scope LocalMachine RemoteSigned</code></pre>
     das PRTG später bekommt.</p>
 <pre><code>cd 'C:\Program Files (x86)\PRTG Network Monitor\Custom Sensors\EXEXML'
 .\Get-EntraSecretExpiry.ps1 -TenantId &lt;tenant&gt; -ClientId &lt;client&gt; `
-  -CertificateThumbprint &lt;thumb&gt;</code></pre>
+  -ClientSecret &lt;secret&gt;</code></pre>
     <figure>
       <img src="assets/ps-prtg-testlauf.webp" alt="PowerShell-Fenster mit dem XML des Sensors: Kanäle für minimale Restlaufzeit, kritische Credentials und eine einzelne Anwendung, plus Meldungstext." loading="lazy">
       <figcaption>Ein erfolgreicher Lauf. Drei feste Kanäle plus einer pro Anwendung und
@@ -163,7 +167,7 @@ Nicht <em>Credentials for Microsoft 365</em>, die ist den eingebauten Sensoren v
   <tr><th>Platzhalter</th><th>Beschreibung</th><th>Wert</th></tr>
   <tr><td>Placeholder 1</td><td>Entra Tenant ID</td><td>Verzeichnis-ID</td></tr>
   <tr><td>Placeholder 2</td><td>Entra Client ID</td><td>Anwendungs-ID (AppId)</td></tr>
-  <tr><td>Placeholder 3</td><td>Entra Client Secret</td><td>nur ohne Zertifikat</td></tr>
+  <tr><td>Placeholder 3</td><td>Entra Client Secret</td><td>Wert aus dem Script</td></tr>
 </table>
 </div>
 
@@ -179,7 +183,7 @@ der Auswahlliste <em>EXE/Script</em>.</p>
   <tr><th>Einstellung</th><th>Wert</th></tr>
   <tr><td>Sensor Name</td><td><code>Entra Secret Expiry</code></td></tr>
   <tr><td>EXE/Script</td><td><code>Get-EntraSecretExpiry.ps1</code></td></tr>
-  <tr><td>Parameters</td><td><code>-TenantId "%scriptplaceholder1" -ClientId "%scriptplaceholder2" -CertificateThumbprint "A1B2C3..."</code></td></tr>
+  <tr><td>Parameters</td><td><code>-TenantId "%scriptplaceholder1" -ClientId "%scriptplaceholder2" -ClientSecret "%scriptplaceholder3"</code></td></tr>
   <tr><td>Environment</td><td><code>Default</code></td></tr>
   <tr><td>Security Context</td><td>Use security context of probe service</td></tr>
   <tr><td>Mutex Name</td><td><code>entra-secret-monitor</code></td></tr>
@@ -197,10 +201,10 @@ der Auswahlliste <em>EXE/Script</em>.</p>
   statt gleichzeitig.</p>
 </div>
 
-<h3>Wenn kein Zertifikat verwendet wird</h3>
+<h3>Wenn ein Zertifikat verwendet wird</h3>
 
-<p>Dann tritt Placeholder 3 an die Stelle des Fingerabdrucks:</p>
-<pre><code>-TenantId "%scriptplaceholder1" -ClientId "%scriptplaceholder2" -ClientSecret "%scriptplaceholder3"</code></pre>
+<p>Dann tritt der Fingerabdruck an die Stelle von Placeholder 3, der leer bleibt:</p>
+<pre><code>-TenantId "%scriptplaceholder1" -ClientId "%scriptplaceholder2" -CertificateThumbprint "A1B2C3..."</code></pre>
 
 <h2>Kanäle</h2>
 
