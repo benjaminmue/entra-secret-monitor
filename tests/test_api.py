@@ -255,6 +255,53 @@ class ApiTests(unittest.TestCase):
                 _, antwort = self.ruf("GET", pfad)
                 self.assertNotIn(GEHEIM, json.dumps(antwort))
 
+    def test_an_uppercase_key_is_rejected_with_the_lowercase_form(self):
+        # Same wording as the form, so a technician reading the API error and a
+        # colleague reading the GUI error get the same instruction.
+        status, koerper = self.ruf("POST", "/api/v1/customers",
+                                   koerper=anlage(key="MusterAG"))
+        self.assertEqual(422, status, koerper)
+        meldung = koerper["error"]["fields"]["key"]
+        self.assertIn("Grossbuchstaben", meldung)
+        self.assertIn("musterag", meldung)
+
+    def test_an_empty_key_is_rejected_instead_of_creating_an_orphan(self):
+        # Regression: die Umstellung auf schluessel_hinweis liess den Leerfall
+        # durch, weil die Funktion fuer leere Werte None lieferte und die
+        # Schnittstelle kein DataRequired kennt. Angelegt wurde dann ein Kunde
+        # mit key "", den danach keine Route mehr adressieren kann.
+        for leer in ("", "   "):
+            with self.subTest(key=leer):
+                status, koerper = self.ruf("POST", "/api/v1/customers",
+                                           koerper=anlage(key=leer))
+                self.assertEqual(422, status, koerper)
+                self.assertIn("key", koerper["error"]["fields"])
+
+        from portal.db import Session
+        from portal.models import Customer
+        self.assertEqual(
+            0, Session.query(Customer).filter(Customer.key == "").count(),
+            "Kunde mit leerem Schluessel wurde angelegt")
+
+    def test_key_length_boundaries(self):
+        # Die Grenzen des Musters, damit eine spaetere Umstellung sie nicht
+        # unbemerkt verschiebt.
+        for key, erwartet in (("a", 422), ("ab", 201), ("a" * 48, 201),
+                              ("a" * 49, 422), ("-abc", 422), ("abc-", 201)):
+            with self.subTest(key=key):
+                status, koerper = self.ruf("POST", "/api/v1/customers",
+                                           koerper=anlage(key=key))
+                self.assertEqual(erwartet, status, koerper)
+
+    def test_a_sent_key_never_changes_the_customer(self):
+        self.lege_an(key="unveraenderlich")
+        status, _ = self.ruf("PATCH", "/api/v1/customers/unveraenderlich",
+                             koerper={"key": "andersjetzt", "display_name": "Neu"})
+        self.assertIn(status, (200, 422))
+        status, koerper = self.ruf("GET", "/api/v1/customers/unveraenderlich", "lesend")
+        self.assertEqual(200, status, koerper)
+        self.assertEqual("unveraenderlich", koerper["key"])
+
     def test_a_created_customer_reports_that_a_credential_is_stored(self):
         """Statt des Secrets kommt die Auskunft, dass eines hinterlegt ist."""
         koerper = self.lege_an()

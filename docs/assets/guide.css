@@ -1,0 +1,138 @@
+/*
+ * guide.css
+ *
+ * Gemeinsames Layout der Anleitungsseiten. Die Startseite traegt ihr CSS
+ * inline, weil sie eine einzelne Landing Page ist. Sobald mehrere Seiten
+ * dasselbe Aussehen brauchen, ist eine Datei die einzige Variante, die nicht
+ * auseinanderlaeuft.
+ */
+
+:root {
+  --blue: #0076bd;
+  --blue-dark: #0f3a6f;
+  --blue-light: #e6f2fa;
+  --green: #8ec563;
+  --green-dark: #4f7f2c;
+  --green-bg: #eef7e6;
+  --orange: #ef8100;
+  --red: #c0392b;
+  --fg: #1f2933;
+  --muted: #61707d;
+  --line: #dde3e9;
+  --bg: #ffffff;
+  --bg-alt: #f4f6f8;
+  --code-bg: #0f1b26;
+  --wrap: 900px;
+}
+
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font: 16px/1.68 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+.wrap { max-width: var(--wrap); margin: 0 auto; padding: 0 24px; }
+
+h1, h2, h3 { line-height: 1.25; letter-spacing: -.02em; margin: 0; }
+h1 { font-size: clamp(1.9rem, 4vw, 2.6rem); font-weight: 700; }
+h2 {
+  font-size: clamp(1.3rem, 2.4vw, 1.6rem); font-weight: 650;
+  margin: 2.6rem 0 .8rem; padding-top: 1.4rem; border-top: 1px solid var(--line);
+}
+h3 { font-size: 1.05rem; font-weight: 650; margin: 1.8rem 0 .5rem; }
+p { margin: .8rem 0; }
+a { color: var(--blue); }
+
+code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+code {
+  background: var(--bg-alt); border: 1px solid var(--line); border-radius: 4px;
+  padding: 1px 5px; font-size: .89em;
+}
+pre {
+  background: var(--code-bg); color: #d7e4ef; border-radius: 9px;
+  padding: 16px 20px; overflow-x: auto; font-size: .87rem; line-height: 1.6;
+}
+pre code { background: none; border: 0; padding: 0; color: inherit; font-size: 1em; }
+
+/* ---------- header ---------- */
+header { background: var(--blue-dark); color: #fff; padding: 14px 0; }
+header .wrap {
+  max-width: 1080px; display: flex; align-items: center;
+  justify-content: space-between; gap: 16px; flex-wrap: wrap;
+}
+.brand {
+  display: flex; align-items: center; gap: 10px; font-weight: 700;
+  font-size: 1.05rem; letter-spacing: -.01em; color: #fff; text-decoration: none;
+}
+.brand img { display: block; border-radius: 7px; }
+.brand .name span { color: var(--green); }
+.nav { display: flex; gap: 20px; font-size: .93rem; flex-wrap: wrap; }
+.nav a { color: #cfe3f2; text-decoration: none; }
+.nav a:hover, .nav a[aria-current] { color: #fff; text-decoration: underline; }
+
+/* ---------- intro ---------- */
+.intro { padding: 52px 0 8px; }
+.kicker {
+  font-size: .78rem; font-weight: 700; letter-spacing: .09em;
+  text-transform: uppercase; color: var(--blue); margin-bottom: .5rem;
+}
+.lede { font-size: 1.14rem; color: var(--muted); max-width: 64ch; margin-top: .9rem; }
+.lede strong { color: var(--fg); font-weight: 600; }
+
+main { padding-bottom: 72px; }
+
+/* ---------- steps ---------- */
+.step { display: flex; gap: 18px; margin: 2rem 0; }
+.step > .n {
+  flex: 0 0 34px; height: 34px; border-radius: 50%;
+  background: var(--blue-light); color: var(--blue-dark);
+  font-weight: 700; font-size: .95rem;
+  display: flex; align-items: center; justify-content: center;
+}
+.step > .body { min-width: 0; flex: 1; }
+.step > .body > :first-child { margin-top: 0; }
+.step h3 { margin-top: 0; }
+
+/* ---------- tables ---------- */
+.tablewrap { overflow-x: auto; margin: 1.2rem 0; }
+table { border-collapse: collapse; width: 100%; font-size: .93rem; }
+th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font-weight: 650; color: var(--blue-dark); background: var(--bg-alt); white-space: nowrap; }
+td code { white-space: nowrap; }
+
+/* ---------- figures ---------- */
+figure { margin: 1.8rem 0; }
+figure img {
+  width: 100%; height: auto; display: block; border: 1px solid var(--line);
+  border-radius: 10px; box-shadow: 0 12px 32px rgba(15, 58, 111, .09);
+}
+figcaption { font-size: .87rem; color: var(--muted); margin-top: .6rem; }
+
+/* ---------- callouts ---------- */
+.note, .warn {
+  border-left: 3px solid var(--blue); background: var(--blue-light);
+  padding: 14px 18px; border-radius: 0 8px 8px 0; margin: 1.4rem 0; font-size: .95rem;
+}
+.note > :first-child, .warn > :first-child { margin-top: 0; }
+.note > :last-child, .warn > :last-child { margin-bottom: 0; }
+.warn { border-left-color: var(--orange); background: #fdf3e6; }
+
+/* ---------- next / footer ---------- */
+.next { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 16px; margin-top: 1.4rem; }
+.next a {
+  display: block; border: 1px solid var(--line); border-radius: 9px;
+  padding: 16px 18px; text-decoration: none; color: var(--fg);
+}
+.next a:hover { border-color: var(--blue); }
+.next strong { display: block; color: var(--blue-dark); }
+.next span { font-size: .9rem; color: var(--muted); }
+
+footer {
+  border-top: 1px solid var(--line); padding: 26px 0; font-size: .89rem; color: var(--muted);
+}
+footer .wrap { max-width: 1080px; display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
