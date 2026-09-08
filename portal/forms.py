@@ -165,6 +165,16 @@ class CustomerForm(FlaskForm):
 
     def validate(self, extra_validators=None):
         """Enforce that the chosen authentication method is actually filled in."""
+        # Die Vorgabe auf dem Feld gilt nur fuer ein leeres Formular. Kommt eine
+        # Absendung ohne auth_type herein, darf sie nicht stillschweigend auf
+        # Secret fallen: bei einem Zertifikatskunden wuerde das die Anmeldeart
+        # umstellen und cert_pem samt privatem Schluessel loeschen, ohne dass
+        # jemand die Umstellung angefordert hat. DataRequired sieht den Fall
+        # nicht, weil der Default das Feld bereits gefuellt hat.
+        if self.is_submitted() and not self.auth_type.raw_data:
+            self.auth_type.errors = list(self.auth_type.errors) + [
+                "Anmeldeart fehlt. Client Secret oder Zertifikat wählen."]
+            return False
         if not super().validate(extra_validators):
             return False
         if self.error_days.data and self.warn_days.data and \

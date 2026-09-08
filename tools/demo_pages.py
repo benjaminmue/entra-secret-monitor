@@ -28,9 +28,13 @@ import pathlib
 import re
 import shutil
 import sys
-import tempfile
 from datetime import datetime, timedelta, timezone
 
+# Anmeldung und Wegwerfinstanz kommen aus dem gemeinsamen Modul. Frueher stand
+# beides hier noch einmal, Wort fuer Wort wie in der Testsuite.
+from tools.portal_sandbox import build_app, csrf_token, sign_in_admin
+
+# Eigene Passwoerter, damit die Dokumentation nicht die der Testsuite zeigt.
 BOOTSTRAP_PASSWORD = "Vorlage-Start-7431-Kanton"
 NEUES_PASSWORT = "Vorlage-Weiter-9182-Kanton"
 
@@ -40,7 +44,8 @@ KUNDEN = [
     {"key": "contoso", "name": "Contoso AG", "tage": 5, "status": "error"},
     {"key": "fabrikam", "name": "Fabrikam GmbH", "tage": 23, "status": "warn"},
     {"key": "nordwind", "name": "Nordwind Logistik", "tage": 88, "status": "ok"},
-    {"key": "alpina-treuhand", "name": "Alpina Treuhand", "tage": 210, "status": "ok"},
+    {"key": "alpina-treuhand", "name": "Alpina Treuhand", "tage": 210, "status": "ok",
+     "auth": "certificate"},
     {"key": "seewerk", "name": "Seewerk Industrie", "tage": 0, "status": "fehler"},
 ]
 
@@ -68,50 +73,36 @@ ANWENDUNGEN = {
 }
 
 
-def baue_app(datenbank):
-    """Create the portal app on a throwaway database with the scheduler off."""
-    os.environ.update({
-        "PORTAL_SECRET_KEY": "demo-key-demo-key-demo-key-demo",
-        "PORTAL_ENCRYPTION_KEY": base64.b64encode(os.urandom(32)).decode(),
-        "PORTAL_DATABASE_URL": "sqlite:///" + datenbank.replace("\\", "/"),
-        "PORTAL_SCHEDULER": "0",
-        "PORTAL_COOKIE_SECURE": "0",
-        "PORTAL_BASE_URL": "https://entra-portal.example.com",
-        "PORTAL_INSTANCE_NAME": "Entra Credential Portal",
-        "PORTAL_BOOTSTRAP_USER": "admin",
-        "PORTAL_BOOTSTRAP_PASSWORD": BOOTSTRAP_PASSWORD,
-    })
-    import portal.db as db
-    db._engine = None                                                   # noqa: SLF001
-    db.Session.remove()
-    from portal.factory import create_app
-    return create_app()
+def zugangsdaten(eintrag, schluessel, jetzt):
+    """
+    Build the credential fields for one invented customer.
 
+    Ein Kunde bleibt bewusst auf Zertifikat. Sonst zeigt die Dokumentation nur
+    noch den Secret-Pfad, und die Stellen, die es nur mit Zertifikat gibt, etwa
+    der Fingerabdruck im Formular und der Befund zum eigenen Ablauf, waeren von
+    keinem Screenshot mehr gedeckt.
+    """
+    from portal import crypto
+    from portal.models import AUTH_CERT, AUTH_SECRET
 
-def csrf(client, pfad):
-    """Read the CSRF token from a rendered form."""
-    koerper = client.get(pfad).get_data(as_text=True)
-    treffer = re.search(r'name="csrf_token"[^>]*value="([^"]+)"', koerper)
-    if not treffer:
-        raise RuntimeError("kein CSRF-Token auf %s" % pfad)
-    return treffer.group(1)
-
-
-def melde_an(client):
-    """Walk the bootstrap account through enrollment so pages render signed in."""
-    import pyotp
-
-    client.post("/login", data={"csrf_token": csrf(client, "/login"),
-                                "username": "admin", "password": BOOTSTRAP_PASSWORD})
-    token = csrf(client, "/login/2fa/setup")
-    with client.session_transaction() as sitzung:
-        secret = sitzung["totp_setup_secret"]
-    client.post("/login/2fa/setup", data={"csrf_token": token,
-                                          "code": pyotp.TOTP(secret).now()})
-    client.post("/account/password", data={
-        "csrf_token": csrf(client, "/account/password"),
-        "current_password": BOOTSTRAP_PASSWORD,
-        "new_password": NEUES_PASSWORT, "confirm_password": NEUES_PASSWORT})
+    if eintrag.get("auth") == "certificate":
+        return {
+            "auth_type": AUTH_CERT,
+            "cert_pem": ("-----BEGIN CERTIFICATE-----\n"
+                         "Beispieldaten\n"
+                         "-----END CERTIFICATE-----\n"),
+            "key_pem_enc": crypto.encrypt(
+                "Beispieldaten, kein echter Schluessel", schluessel,
+                crypto.aad_for("customer", eintrag["key"], "key_pem_enc")),
+            "cert_thumbprint": "A1B2C3D4E5F60718293A4B5C6D7E8F9012345678",
+            "cert_not_after": jetzt + timedelta(days=640),
+        }
+    return {
+        "auth_type": AUTH_SECRET,
+        "client_secret_enc": crypto.encrypt(
+            "Beispieldaten, kein echtes Secret", schluessel,
+            crypto.aad_for("customer", eintrag["key"], "client_secret_enc")),
+    }
 
 
 def fuelle_daten(app):
@@ -133,10 +124,7 @@ def fuelle_daten(app):
             key=eintrag["key"], display_name=eintrag["name"],
             tenant_id="%08d-1111-2222-3333-444444444444" % (platz + 1),
             client_id="%08d-5555-6666-7777-888888888888" % (platz + 1),
-            auth_type="secret",
-            client_secret_enc=crypto.encrypt(
-                "Beispieldaten, kein echtes Secret", schluessel,
-                crypto.aad_for("customer", eintrag["key"], "client_secret_enc")),
+            **zugangsdaten(eintrag, schluessel, jetzt),
             warn_days=30, error_days=14, max_channels=45,
             include_sp=False, show_expired=False,
             prtg_token=new_token(), slot_minute=platz * 240, is_active=True,
@@ -299,14 +287,15 @@ def main():
     ziel = sys.argv[1] if len(sys.argv) > 1 else "demo-pages"
     pathlib.Path(ziel).mkdir(parents=True, exist_ok=True)
 
-    handle, datenbank = tempfile.mkstemp(suffix=".db")
-    os.close(handle)
     try:
-        app = baue_app(datenbank)
+        app, datenbank = build_app(
+            bootstrap_password=BOOTSTRAP_PASSWORD,
+            PORTAL_BASE_URL="https://entra-portal.example.com",
+            PORTAL_INSTANCE_NAME="Entra Credential Portal")
         with app.app_context():
             fuelle_daten(app)
         client = app.test_client()
-        melde_an(client)
+        sign_in_admin(client, BOOTSTRAP_PASSWORD, NEUES_PASSWORT)
 
         # Ein erster Abruf verbraucht die Flash-Meldung des Passwortwechsels.
         # Sonst klebt sie im Screenshot und gehoert dort nicht hin.
@@ -319,14 +308,14 @@ def main():
         # Zwei Schluessel, damit die Liste beide Bereiche zeigt statt leer zu sein.
         for name, bereich in (("PRTG Leserechte", "read"), ("Cloud Portal", "write")):
             client.post("/einstellungen/api/neu", data={
-                "csrf_token": csrf(client, "/einstellungen/api/"),
+                "csrf_token": csrf_token(client, "/einstellungen/api/"),
                 "name": name, "scope": bereich})
         schreibe(ziel, "api-schluessel.html",
                  client.get("/einstellungen/api/").get_data(as_text=True))
 
         # Der Fehlerfall des Schluessels, so wie ihn die Oberflaeche zeigt.
         antwort = client.post("/kunden/neu", data={
-            "csrf_token": csrf(client, "/kunden/neu"),
+            "csrf_token": csrf_token(client, "/kunden/neu"),
             "key": "Contoso", "display_name": "Contoso AG",
             "tenant_id": "11111111-2222-3333-4444-555555555555",
             "client_id": "66666666-7777-8888-9999-000000000000",

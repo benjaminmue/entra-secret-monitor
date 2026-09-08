@@ -32,24 +32,9 @@ try:                                    # Nur vorhanden, wenn die Extras des
 except ImportError:                     # ueberspringt needs_portal alles hier.
     pyotp = None
 
-def build_app():
-    """Create a portal app on a throwaway SQLite file with the scheduler off."""
-    handle, path = tempfile.mkstemp(suffix=".db")
-    os.close(handle)
-    os.environ.update({
-        "PORTAL_SECRET_KEY": "unit-test-key-unit-test-key",
-        "PORTAL_ENCRYPTION_KEY": base64.b64encode(os.urandom(32)).decode(),
-        "PORTAL_DATABASE_URL": "sqlite:///" + path.replace("\\", "/"),
-        "PORTAL_SCHEDULER": "0",
-        "PORTAL_COOKIE_SECURE": "0",
-        "PORTAL_BOOTSTRAP_USER": "admin",
-        "PORTAL_BOOTSTRAP_PASSWORD": BOOTSTRAP_PASSWORD,
-    })
-    import portal.db as db
-    db._engine = None                                                   # noqa: SLF001
-    db.Session.remove()
-    from portal.factory import create_app
-    return create_app(), path
+# Die Wegwerfinstanz liegt in tools/portal_sandbox.py, weil das Doku-Werkzeug
+# dieselbe braucht. Der Name bleibt, damit die Testdateien unveraendert bleiben.
+from tools.portal_sandbox import build_app  # noqa: F401,E402
 
 
 FAKE_CHANNELS = [

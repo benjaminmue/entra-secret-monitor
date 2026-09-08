@@ -168,37 +168,8 @@ def make_certificate(days=365, key=None):
 
 # Zugangsdaten des Erstkontos. Sie stehen hier, weil drei Testdateien dieselbe
 # Anmeldung brauchen und die Passwoerter sonst dreimal danebenstuenden.
-BOOTSTRAP_PASSWORD = "Start!Passwort2026x"
-NEW_PASSWORD = "Zaun#Kies7Vogel!Lampe"
-
-
-def csrf_token(client, path):
-    """
-    Read the CSRF token from a rendered form.
-
-    Das Token haengt an der Sitzung, und die Sitzung wird zwischen Passwort-
-    und Codeschritt geleert. Es muss deshalb von genau der Seite gelesen
-    werden, die abgeschickt wird.
-    """
-    body = client.get(path).get_data(as_text=True)
-    match = re.search(r'name="csrf_token"[^>]*value="([^"]+)"', body)
-    assert match, "kein CSRF-Token auf %s" % path
-    return match.group(1)
-
-
-def sign_in_admin(client):
-    """Walk the bootstrap account through TOTP enrollment and password change."""
-    import pyotp
-
-    client.post("/login", data={"csrf_token": csrf_token(client, "/login"),
-                                "username": "admin", "password": BOOTSTRAP_PASSWORD})
-    token = csrf_token(client, "/login/2fa/setup")
-    # Das Geheimnis liegt waehrend der Einrichtung in der Sitzung, nicht im HTML.
-    with client.session_transaction() as session:
-        secret = session["totp_setup_secret"]
-    client.post("/login/2fa/setup", data={"csrf_token": token,
-                                          "code": pyotp.TOTP(secret).now()})
-    client.post("/account/password", data={
-        "csrf_token": csrf_token(client, "/account/password"),
-        "current_password": BOOTSTRAP_PASSWORD,
-        "new_password": NEW_PASSWORD, "confirm_password": NEW_PASSWORD})
+# Anmeldemechanik und Wegwerfinstanz liegen in tools/portal_sandbox.py, weil
+# das Doku-Werkzeug dasselbe braucht. Hier stehen nur noch die Namen, unter
+# denen die Testsuite sie kennt.
+from tools.portal_sandbox import (BOOTSTRAP_PASSWORD, NEW_PASSWORD,  # noqa: F401,E402
+                                  csrf_token, sign_in_admin)

@@ -106,7 +106,7 @@
     </div>
 
     <figure>
-      <img src="assets/ps-kunde-anlegen.webp" alt="PowerShell-Fenster mit der Ausgabe des Scripts New-MonitorAppRegistration.ps1: App-Registrierung, Service Principal, erteilte Berechtigung, erzeugtes Zertifikat und der Konfigurationsblock." loading="lazy">
+      <img src="assets/ps-kunde-anlegen.webp" alt="PowerShell-Fenster mit der Ausgabe des Scripts New-MonitorAppRegistration.ps1: App-Registrierung, Service Principal, erteilte Berechtigung, erzeugtes Client Secret und der Konfigurationsblock." loading="lazy">
       <figcaption>Ein Durchlauf mit erfundenen Werten. Das Script meldet jeden Schritt einzeln,
       am Ende steht der Konfigurationsblock.</figcaption>
     </figure>
@@ -157,8 +157,10 @@
 
     <figure>
       <img src="assets/form-secret.webp" alt="Formular Kunde anlegen mit der Vorgabe Client Secret: nur das Feld Client Secret ist sichtbar, die beiden PEM-Felder sind ausgeblendet." loading="lazy">
-      <figcaption>Vorgabe Client Secret. Entra kappt die Laufzeit bei 24 Monaten, und genau
-      diesen Ablauf meldet das Portal danach selbst.</figcaption>
+      <figcaption>Vorgabe Client Secret. Entra kappt die Laufzeit bei 24 Monaten. Das
+      Portal meldet auch den Ablauf des eigenen Zugangsdatums, solange nur eines
+      hinterlegt ist: liegen zwei Secrets derselben App parallel, zählt die längere
+      Restlaufzeit, und das ablaufende bleibt unsichtbar.</figcaption>
     </figure>
 
     <p>Nur wenn der Tenant keine Client Secrets zulässt, wird auf <strong>Zertifikat</strong>

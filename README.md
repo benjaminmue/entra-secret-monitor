@@ -103,12 +103,15 @@ interval does not hammer Graph.
 2. **API permissions** -> Microsoft Graph -> *Application permission*
    `Application.Read.All`, then grant admin consent. Nothing else, no
    `Directory.Read.All`.
-3. **Authentication**: a client secret is the normal way. It works in every
-   tenant and on every host, with no certificate store and no private key to
-   place anywhere. Entra caps it at 24 months, and that expiry is exactly what
-   this project reports on, including for its own credential. Use a certificate
+3. **Authentication**: a client secret is the default here, for operational
+   reasons: it works in every tenant and on every host, with no certificate
+   store and no private key to place anywhere. That is a convenience argument,
+   not a security one. A certificate is the stronger credential, since a secret
+   is a bearer value while a certificate proves possession of a key that never
+   leaves the host, and Microsoft's own guidance prefers it. Use a certificate
    when the tenant restricts client secrets through an app management policy,
-   or when 24 months is too short for how you operate.
+   when 24 months is too short for how you operate, or when the stronger
+   credential is worth the extra handling.
 
 ```bash
 openssl req -x509 -newkey rsa:2048 -nodes -days 1095 \
@@ -116,36 +119,41 @@ openssl req -x509 -newkey rsa:2048 -nodes -days 1095 \
   -subj "/CN=entra-secret-monitor"
 ```
 
-Upload `contoso.crt` under *Certificates & secrets -> Certificates*.
+For a secret, take the value under *Certificates & secrets -> Client secrets*.
+The block above is only needed for the certificate route; upload `contoso.crt`
+under *Certificates & secrets -> Certificates*.
 
-The monitoring app registration shows up in its own report, so it watches its own
-expiry as well.
+The monitoring app registration shows up in its own report, so its own expiry is
+reported too. That holds while a single credential is attached: several
+credentials of the same application and type collapse into one channel carrying
+the longest remaining runtime, so during an overlapping rotation the fresh one
+hides the one about to expire.
 
 ## Creating the app registration
 
 `scripts/New-MonitorAppRegistration.ps1` does the whole setup in one call:
 it creates a dedicated app registration, grants and consents to
-`Application.Read.All`, generates a self-signed key pair locally, uploads the
-public certificate and prints the environment block.
+`Application.Read.All`, attaches a credential and prints the environment block.
 
 ```powershell
 ./scripts/New-MonitorAppRegistration.ps1 `
   -TenantId 00000000-1111-2222-3333-444444444444 `
-  -TenantKey contoso -CreateCertificate -CertificateYears 3
+  -TenantKey contoso
 ```
+
+Without further switches this creates a client secret valid for 24 months.
 
 Requires the `Microsoft.Graph.Applications` module and an account allowed to
 create app registrations and grant admin consent. Add `-UseDeviceCode` when no
-browser is available, `-CertificatePath` to upload an existing certificate, and
-omit `-CreateCertificate` to fall back to a client secret.
+browser is available.
 
-The private key is written next to the certificate and never sent to Entra.
-Copy both files to the `config` directory of the monitoring host.
-
+For a certificate instead, add `-CreateCertificate` (with `-CertificateYears` to
+change the three year default) or `-CertificatePath` to upload an existing one.
+The private key is then written next to the certificate, never sent to Entra,
+and both files belong in the `config` directory of the monitoring host.
 Certificate lifetime is not capped by Entra, unlike the 24 months a client
-secret gets. Three years is the default here: the monitor reports its own
-expiry in time, so a longer lifetime mainly extends the window in which a
-leaked key stays usable.
+secret gets, so a longer lifetime mainly extends the window in which a leaked
+key stays usable.
 
 ## Configuration
 
