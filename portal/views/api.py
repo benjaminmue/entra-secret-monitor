@@ -17,7 +17,6 @@ ablaeuft. Ein API-Schluessel ist damit kein Generalschluessel fuer die Tenants
 der Kunden.
 """
 
-import re
 from datetime import timezone
 from functools import wraps
 
@@ -27,7 +26,7 @@ from sqlalchemy import select
 
 from portal import audit, crypto, diagnose, openapi, ratelimit, scheduler, security
 from portal.db import Session
-from portal.forms import GUID, KEY_PATTERN
+from portal.forms import GUID, schluessel_hinweis
 from portal.models import (API_SCOPE_WRITE, AUTH_CERT, AUTH_SECRET, ApiKey,
                            CredentialSnapshot, Customer, new_token, utcnow)
 from portal.scanner import data_age_hours, inspect_certificate
@@ -409,10 +408,11 @@ def hole_kunde(schluessel):
 # Eingaben pruefen
 # --------------------------------------------------------------------------
 
-# Dieselben Muster wie im Formular der Oberflaeche. Bewusst importiert statt
-# nachgebaut: zwei Kopien laufen frueher oder spaeter auseinander, und dann
-# nimmt die Schnittstelle an, was die Oberflaeche ablehnt.
-SCHLUESSEL_MUSTER = re.compile(KEY_PATTERN)
+# Dieselben Pruefungen wie im Formular der Oberflaeche. Bewusst importiert
+# statt nachgebaut: zwei Kopien laufen frueher oder spaeter auseinander, und
+# dann nimmt die Schnittstelle an, was die Oberflaeche ablehnt. Der Schluessel
+# kommt als Funktion herein, damit die Schnittstelle denselben Satz zur
+# Grossschreibung ausgibt wie das Formular.
 GUID_MUSTER = GUID
 
 
@@ -551,11 +551,12 @@ def pruefe_zugangsdaten(daten, kunde=None):
 def pruefe_anlage(daten):
     """Validate the body of a create request, returning a dict of field errors."""
     fehler_felder = pruefe_typen(daten)
-    if not isinstance(daten.get("key"), str) or not SCHLUESSEL_MUSTER.match(
-            daten.get("key", "").strip()):
-        fehler_felder.setdefault(
-            "key", "Kleinbuchstaben, Ziffern und Bindestrich, 2 bis 48 Zeichen, "
-                   "beginnend mit Buchstabe oder Ziffer")
+    if not isinstance(daten.get("key"), str):
+        fehler_felder.setdefault("key", "Pflichtfeld, Zeichenkette erwartet")
+    else:
+        meldung = schluessel_hinweis(daten.get("key", "").strip())
+        if meldung:
+            fehler_felder.setdefault("key", meldung)
     if not text(daten, "display_name"):
         fehler_felder.setdefault("display_name", "Pflichtfeld")
     for feld in GUID_FELDER:

@@ -38,6 +38,47 @@ class GuidField(StringField):
                                   "00000000-0000-0000-0000-000000000000")
 
 
+def schluessel_hinweis(wert):
+    """
+    Return the specific reason why a customer key is invalid, or None.
+
+    Uppercase is the mistake that happens in practice: the display name of the
+    customer gets typed into the key field, and the generic pattern message
+    leaves the reader guessing which of the four rules was broken. Naming the
+    lowercase form outright turns the error into an instruction.
+
+    Ein leerer Wert ist ungueltig und bekommt deshalb eine Meldung. Die
+    Funktion darf nicht "leer heisst in Ordnung" antworten: das Formular faengt
+    den Fall zwar zusaetzlich mit DataRequired ab, die Schnittstelle hat kein
+    solches Gegenstueck, und ein leerer Schluessel erzeugt dort einen Kunden,
+    den danach keine Route mehr adressieren kann.
+    """
+    if not wert:
+        return ("Pflichtfeld. Kleinbuchstaben, Ziffern und Bindestrich, "
+                "2 bis 48 Zeichen, z.B. contoso")
+    if wert != wert.lower():
+        klein = wert.lower()
+        if re.match(KEY_PATTERN, klein):
+            return ("Grossbuchstaben sind im Schlüssel nicht erlaubt. "
+                    "Verwende %s." % klein)
+        return ("Grossbuchstaben sind im Schlüssel nicht erlaubt. Verwende "
+                "ausschliesslich Kleinbuchstaben, Ziffern und Bindestrich.")
+    if not re.match(KEY_PATTERN, wert):
+        return ("Kleinbuchstaben, Ziffern und Bindestrich, 2 bis 48 Zeichen, "
+                "Beginn mit Buchstabe oder Ziffer, z.B. contoso")
+    return None
+
+
+class KeyField(StringField):
+    """Customer key field that says what is wrong, not just that something is."""
+
+    def pre_validate(self, form):
+        """Reject an invalid key with the reason that applies to this value."""
+        meldung = schluessel_hinweis((self.data or "").strip())
+        if meldung:
+            raise ValidationError(meldung)
+
+
 class LoginForm(FlaskForm):
     """Step one of the login: account and password."""
 
@@ -88,10 +129,7 @@ class UserForm(FlaskForm):
 class CustomerForm(FlaskForm):
     """Create or edit one monitored customer tenant."""
 
-    key = StringField("Schlüssel", validators=[
-        DataRequired(), Regexp(KEY_PATTERN,
-                               message="Kleinbuchstaben, Ziffern und Bindestrich, "
-                                       "2 bis 48 Zeichen, z.B. contoso")])
+    key = KeyField("Schlüssel", validators=[DataRequired()])
     display_name = StringField("Anzeigename", validators=[DataRequired(), Length(max=128)])
     tenant_id = GuidField("Tenant-ID (Verzeichnis-ID)", validators=[DataRequired()])
     client_id = GuidField("Client-ID (Anwendungs-ID)", validators=[DataRequired()])

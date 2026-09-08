@@ -1,0 +1,413 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>API, erste Schritte - Entra Credential Monitor</title>
+<meta name="description" content="REST-API des Portals: Schlüssel ausstellen, Kunden anlegen, Laufzeiten und PRTG-XML abholen, Fehler auswerten. Mit Beispielen aus der laufenden Instanz.">
+<meta property="og:title" content="API, erste Schritte">
+<meta property="og:description" content="Kunden anlegen, Laufzeiten auslesen, XML abholen, Fehler auswerten.">
+<meta property="og:type" content="article">
+<meta property="og:url" content="https://entra-monitor.bebamu.ch/anleitung-api.html">
+<link rel="icon" type="image/svg+xml" href="assets/logo.svg">
+<link rel="apple-touch-icon" href="assets/logo-512.png">
+<link rel="stylesheet" href="assets/guide.css">
+</head>
+<body>
+
+<header>
+  <div class="wrap">
+    <a class="brand" href="index.html">
+      <img src="assets/logo.svg" width="30" height="30" alt="">
+      <span class="name">Entra Credential <span>Monitor</span></span>
+    </a>
+    <nav class="nav">
+      <a href="index.html">Start</a>
+      <a href="anleitung-kunde.html">Kunde einrichten</a>
+      <a href="anleitung-prtg.html">PRTG-Sensor</a>
+      <a href="anleitung-api.html" aria-current="page">API</a>
+      <a href="https://github.com/benjaminmue/entra-secret-monitor">GitHub</a>
+    </nav>
+  </div>
+</header>
+
+<section class="intro">
+  <div class="wrap">
+    <div class="kicker">Anleitung</div>
+    <h1>API, erste Schritte</h1>
+    <p class="lede">
+      Alles, was die Oberfläche kann, geht auch über <code>/api/v1</code>: Kunden anlegen,
+      Laufzeiten auslesen, Prüfungen auslösen, Sensor-URLs abholen. Gedacht für ein
+      übergeordnetes Cloud-Portal oder ein Onboarding-Script.
+    </p>
+  </div>
+</section>
+
+<main class="wrap">
+
+<div class="note">
+  <p><strong>Arbeitsteilung:</strong> Die Oberfläche ist für Administratoren, die einen
+  Einzelfall geradeziehen. Die API ist für Techniker und angeschlossene Systeme, die
+  dasselbe im Durchlauf erledigen. Beide sprechen dieselbe Datenbank, es gibt keinen
+  zweiten Zustand.</p>
+</div>
+
+<p>Alle Beispiele auf dieser Seite stammen aus einer laufenden Instanz mit Beispieldaten,
+erzeugt von <code>tools/demo_pages.py</code>. Sie sind nicht abgetippt.</p>
+
+<h2>1. Schlüssel ausstellen</h2>
+
+<p>Im Portal unter <em>API</em>. Ein Schlüssel hat einen Bereich, und der entscheidet, was
+mit ihm geht.</p>
+
+<div class="tablewrap">
+<table>
+  <tr><th>Bereich</th><th>Erlaubt</th><th>Für wen</th></tr>
+  <tr><td><code>read</code></td><td>Alle GET-Aufrufe</td><td>Systeme, die nur Zahlen abholen</td></tr>
+  <tr><td><code>write</code></td><td>Zusätzlich POST, PATCH, DELETE</td><td>Onboarding, Cloud-Portal</td></tr>
+</table>
+</div>
+
+<figure>
+  <img src="assets/api-schluessel.webp" alt="API-Seite des Portals mit Formular zum Ausstellen eines Schlüssels, Liste zweier bestehender Schlüssel mit Präfix und Bereich, sowie der Tabelle aller Endpunkte." loading="lazy">
+  <figcaption>Gespeichert wird nur der Hash. Der Schlüssel selbst erscheint genau einmal,
+  direkt nach dem Ausstellen. Wer ihn verliert, stellt einen neuen aus.</figcaption>
+</figure>
+
+<p>Übergeben wird er als Bearer-Token:</p>
+
+<pre><code>curl -H "Authorization: Bearer esm_xxxxxxxx_..." \
+  https://entra-portal.example.com/api/v1/</code></pre>
+
+<p>Die Wurzel listet Version, Instanz und alle Endpunkte mit ihrem Bereich. Sie eignet sich
+als erster Test, ob der Schlüssel funktioniert:</p>
+
+<pre><code>{
+  "version": "1.0",
+  "instance": "Entra Credential Portal",
+  "scope": "write",
+  "endpoints": [
+    { "method": "GET",  "path": "/api/v1/customers",       "scope": "read",  "purpose": "..." },
+    { "method": "POST", "path": "/api/v1/customers",       "scope": "write", "purpose": "..." },
+    { "method": "GET",  "path": "/api/v1/problems",        "scope": "read",  "purpose": "..." }
+  ]
+}</code></pre>
+
+<div class="note">
+  <p>Die maschinenlesbare Beschreibung liegt unter <code>/api/v1/openapi.json</code> und
+  lässt sich direkt in einen Client-Generator geben.</p>
+</div>
+
+<h2>2. Kunde anlegen</h2>
+
+<p>Ein POST mit Tenant-ID, Client-ID und dem Zugangsdatum. Der Schlüssel muss
+kleingeschrieben sein.</p>
+
+<pre><code>curl -X POST https://entra-portal.example.com/api/v1/customers \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+        "key": "musterag",
+        "display_name": "Muster AG",
+        "tenant_id": "99999999-1111-2222-3333-444444444444",
+        "client_id": "88888888-5555-6666-7777-888888888888",
+        "auth_type": "secret",
+        "client_secret": "beispiel-secret-aus-der-app"
+      }'</code></pre>
+
+<p>Antwort <code>201 Created</code>, gekürzt auf das Wesentliche:</p>
+
+<pre><code>{
+  "key": "musterag",
+  "display_name": "Muster AG",
+  "auth_type": "secret",
+  "has_credential": true,
+  "is_active": true,
+  "state": "unknown",
+  "scan": {
+    "status": "pending",
+    "last_check_at": null,
+    "slot_minute": 1200
+  },
+  "summary": { "count_total": 0, "count_critical": 0, "min_days": null },
+  "problems": [
+    {
+      "code": "never_checked",
+      "severity": "warn",
+      "message": "Dieser Kunde wurde noch nie erfolgreich geprüft.",
+      "action": "Eine Prüfung auslösen oder den nächsten Tageslauf abwarten."
+    }
+  ]
+}</code></pre>
+
+<p>Der Kunde ist angelegt, aber noch nie geprüft. <code>slot_minute</code> ist die
+Tagesminute, zu der er künftig automatisch geprüft wird; das Portal verteilt neue Kunden
+in die grösste Lücke.</p>
+
+<h3>Mit Zertifikat statt Secret</h3>
+
+<pre><code>{
+  "key": "contoso",
+  "display_name": "Contoso AG",
+  "tenant_id": "8f3a1c22-9b41-4d7e-a512-6ce0f9b27d44",
+  "client_id": "2d9f4b18-77ac-4e63-9f1a-b58d3c07e912",
+  "auth_type": "certificate",
+  "cert_pem": "-----BEGIN CERTIFICATE-----\n...\n-----END CERTIFICATE-----\n",
+  "key_pem": "-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n"
+}</code></pre>
+
+<h3>Sofort prüfen statt warten</h3>
+
+<pre><code>curl -X POST https://entra-portal.example.com/api/v1/customers/musterag/check \
+  -H "Authorization: Bearer $TOKEN"</code></pre>
+
+<p>Die Antwort enthält das Ergebnis des Laufs, nicht nur eine Bestätigung. Ein
+Onboarding-Script kann damit direkt melden, ob die Zugangsdaten stimmen.</p>
+
+<h2>3. Laufzeiten auslesen</h2>
+
+<div class="warn">
+  <p><strong>Secret-Werte gibt es nirgends.</strong> Weder die API noch Microsoft Graph geben
+  den Wert eines Client Secrets heraus. Ausgelesen werden Metadaten: welche Anwendung,
+  welcher Typ, wann läuft es ab. Genau das ist der Zweck.</p>
+</div>
+
+<pre><code>curl -H "Authorization: Bearer $TOKEN" \
+  https://entra-portal.example.com/api/v1/customers/contoso/credentials</code></pre>
+
+<pre><code>{
+  "customer": "contoso",
+  "count": 3,
+  "last_check_at": "2026-09-08T17:05:28+00:00",
+  "credentials": [
+    {
+      "app_name": "SVC-Backup Veeam",
+      "app_id": "00000001-aaaa-bbbb-cccc-000000000000",
+      "type": "secret",
+      "credential_name": "prod",
+      "days_left": 5,
+      "end_date": "2026-09-13T18:05:28+00:00",
+      "object_type": "application",
+      "sibling_count": 1
+    },
+    {
+      "app_name": "ConnectSyncProvisioning",
+      "type": "cert",
+      "days_left": 86,
+      "end_date": "2026-12-03T18:05:28+00:00",
+      "sibling_count": 2
+    }
+  ]
+}</code></pre>
+
+<p>Sortiert ist nach kürzester Restlaufzeit. <code>sibling_count</code> sagt, wie viele
+Credentials derselben Anwendung und desselben Typs zusammengefasst wurden; gezählt wird
+immer die längste Laufzeit, weil ein frisch gerolltes Secret das alte irrelevant macht.</p>
+
+<h3>Nur das, was Aufmerksamkeit braucht</h3>
+
+<p>Wer nicht alle Kunden durchgehen und selbst bewerten will, nimmt <code>/problems</code>.
+Die Reihenfolge ist die der Dringlichkeit.</p>
+
+<pre><code>curl -H "Authorization: Bearer $TOKEN" \
+  https://entra-portal.example.com/api/v1/problems</code></pre>
+
+<pre><code>{
+  "checked_customers": 5,
+  "count": 3,
+  "customers": [
+    {
+      "key": "contoso",
+      "display_name": "Contoso AG",
+      "state": "error",
+      "min_days": 5,
+      "problems": [
+        {
+          "code": "credential_critical",
+          "severity": "error",
+          "message": "SVC-Backup Veeam (prod) läuft in weniger als 14 Tagen ab.",
+          "action": "Erneuerung einplanen.",
+          "applications": ["SVC-Backup Veeam (prod)"],
+          "min_days_left": 5,
+          "count": 1
+        }
+      ]
+    },
+    {
+      "key": "seewerk",
+      "display_name": "Seewerk Industrie",
+      "state": "error",
+      "problems": [{ "code": "scan_failed", "severity": "error", "message": "..." }]
+    }
+  ]
+}</code></pre>
+
+<p>Von fünf Kunden tauchen hier nur die drei auf, bei denen etwas ist. Jeder Befund hat
+einen <code>code</code> zum Auswerten und einen Satz Klartext zum Anzeigen.</p>
+
+<div class="tablewrap">
+<table>
+  <tr><th>Code</th><th>Bedeutung</th></tr>
+  <tr><td><code>credential_critical</code></td><td>Restlaufzeit unter der Fehlerschwelle</td></tr>
+  <tr><td><code>credential_warning</code></td><td>Restlaufzeit unter der Warnschwelle</td></tr>
+  <tr><td><code>credential_expired</code></td><td>bereits abgelaufen</td></tr>
+  <tr><td><code>scan_failed</code></td><td>letzter Lauf ist gescheitert, Details in <code>scan.error</code></td></tr>
+  <tr><td><code>never_checked</code></td><td>noch nie erfolgreich geprüft</td></tr>
+  <tr><td><code>no_credential</code></td><td>kein Secret und kein Zertifikat hinterlegt</td></tr>
+  <tr><td><code>inactive</code></td><td>Überwachung für diesen Kunden abgeschaltet</td></tr>
+</table>
+</div>
+
+<h2>4. XML auslesen</h2>
+
+<p>Das PRTG-XML hängt nicht am API-Schlüssel, sondern an einem eigenen Token pro Kunde.
+So kann eine PRTG-Instanz die Sensordaten holen, ohne einen Schlüssel zu besitzen, der
+Kunden anlegen könnte.</p>
+
+<pre><code>curl -H "Authorization: Bearer $TOKEN" \
+  https://entra-portal.example.com/api/v1/customers/contoso/urls</code></pre>
+
+<pre><code>{
+  "prtg_xml": "https://entra-portal.example.com/prtg/SENSOR-TOKEN-AUS-DER-ANTWORT",
+  "json":     "https://entra-portal.example.com/json/SENSOR-TOKEN-AUS-DER-ANTWORT",
+  "hinweis":  "Anhängbar sind ?app=, ?filter=, ?exclude=, ?type=secret|cert, ?warn= und ?error= für eigene Schwellen."
+}</code></pre>
+
+<p>Die <code>prtg_xml</code>-URL kommt in einen Sensor vom Typ <em>HTTP Data Advanced</em>.
+Sie braucht keinen weiteren Kopf, der Token steht im Pfad:</p>
+
+<pre><code>curl https://entra-portal.example.com/prtg/SENSOR-TOKEN-AUS-DER-ANTWORT</code></pre>
+
+<pre><code>&lt;?xml version="1.0" encoding="UTF-8" ?&gt;
+&lt;prtg&gt;
+  &lt;result&gt;
+    &lt;channel&gt;Minimale Restlaufzeit&lt;/channel&gt;
+    &lt;value&gt;5&lt;/value&gt;
+    &lt;unit&gt;Custom&lt;/unit&gt;
+    &lt;customunit&gt;Tage&lt;/customunit&gt;
+    &lt;limitmode&gt;1&lt;/limitmode&gt;
+    &lt;limitminwarning&gt;30&lt;/limitminwarning&gt;
+    &lt;limitminerror&gt;14&lt;/limitminerror&gt;
+  &lt;/result&gt;
+  &lt;result&gt;
+    &lt;channel&gt;SVC-Backup Veeam (Secret)&lt;/channel&gt;
+    &lt;value&gt;5&lt;/value&gt;
+    ...
+  &lt;/result&gt;
+&lt;/prtg&gt;</code></pre>
+
+<div class="note">
+  <p>Ein Abruf dieser URL löst <strong>keine</strong> Graph-Anfrage aus. Geliefert wird der
+  gespeicherte Stand des letzten Laufs. PRTG darf also häufig fragen, ohne dass Microsoft
+  häufiger gefragt wird.</p>
+</div>
+
+<p>Ein kompromittierter Token wird durch einen neuen ersetzt. Die bisherige URL liefert
+danach nichts mehr:</p>
+
+<pre><code>curl -X POST https://entra-portal.example.com/api/v1/customers/contoso/token \
+  -H "Authorization: Bearer $TOKEN"</code></pre>
+
+<h2>5. Fehler auslesen</h2>
+
+<p>Fehler kommen immer im selben Umschlag: ein Objekt <code>error</code> mit
+<code>code</code>, <code>message</code> und bei Eingabefehlern zusätzlich
+<code>fields</code>.</p>
+
+<h3>Ungültige Eingabe, 422</h3>
+
+<p>Ein Schlüssel mit Grossbuchstaben, der häufigste Fall beim Onboarding:</p>
+
+<pre><code>{
+  "error": {
+    "code": "validation_failed",
+    "message": "Eingaben unvollständig.",
+    "fields": {
+      "key": "Grossbuchstaben sind im Schlüssel nicht erlaubt. Verwende musterag."
+    }
+  }
+}</code></pre>
+
+<p><code>fields</code> ist nach Feldnamen aufgeschlüsselt und lässt sich direkt an ein
+Formular zurückgeben. Die Meldung ist wörtlich dieselbe wie in der Oberfläche, damit
+Techniker und Administrator dieselbe Anweisung lesen.</p>
+
+<h3>Unbekannter Kunde, 404</h3>
+
+<pre><code>{
+  "error": {
+    "code": "not_found",
+    "message": "Kein Kunde mit diesem Schlüssel."
+  }
+}</code></pre>
+
+<h3>Statuscodes</h3>
+
+<div class="tablewrap">
+<table>
+  <tr><th>Status</th><th><code>error.code</code></th><th>Wann</th><th>Was tun</th></tr>
+  <tr><td>200</td><td>-</td><td>Abfrage erfolgreich</td><td>-</td></tr>
+  <tr><td>201</td><td>-</td><td>Kunde angelegt</td><td>-</td></tr>
+  <tr><td>401</td><td><code>unauthenticated</code></td><td>Kopf <code>Authorization</code> fehlt</td><td>Bearer-Token mitgeben</td></tr>
+  <tr><td>401</td><td><code>invalid_key</code></td><td>Schlüssel falsch oder widerrufen</td><td>Neuen Schlüssel ausstellen</td></tr>
+  <tr><td>403</td><td><code>read_only</code></td><td>Schlüssel ist <code>read</code>, Aufruf braucht <code>write</code></td><td>Schreibenden Schlüssel verwenden</td></tr>
+  <tr><td>404</td><td><code>not_found</code></td><td>Kunde existiert nicht</td><td>Kundenschlüssel prüfen</td></tr>
+  <tr><td>409</td><td><code>duplicate</code></td><td>Kundenschlüssel bereits vergeben</td><td>Anderen Schlüssel wählen oder PATCH benutzen</td></tr>
+  <tr><td>422</td><td><code>validation_failed</code></td><td>Eingabe unvollständig oder ungültig</td><td><code>fields</code> auswerten</td></tr>
+  <tr><td>429</td><td><code>rate_limited</code></td><td>Zu viele Aufrufe</td><td>Kopf <code>Retry-After</code> abwarten</td></tr>
+</table>
+</div>
+
+<p>Die Codes in dieser Tabelle sind keine Behauptung: <code>tools/demo_pages.py</code>
+löst jeden davon bei jedem Lauf einmal aus und schreibt die Antwort nach
+<code>api-statuscodes.json</code>.</p>
+
+<h3>Fehler eines Prüflaufs</h3>
+
+<p>Ein gescheiterter Lauf ist kein HTTP-Fehler. Der Kunde antwortet mit 200, der Fehler
+steht im Objekt <code>scan</code>:</p>
+
+<pre><code>{
+  "key": "seewerk",
+  "state": "error",
+  "scan": {
+    "status": "error",
+    "last_check_at": "2026-09-08T12:05:28+00:00",
+    "last_success_at": null,
+    "error": "AADSTS7000215: Ungültiges Client Secret. Secret abgelaufen oder falsch hinterlegt."
+  }
+}</code></pre>
+
+<p>Der AADSTS-Code von Entra bleibt erhalten. Damit steht die Ursache im überwachenden
+System, ohne dass jemand ins Portal schauen muss.</p>
+
+<h2>Rate Limits</h2>
+
+<p>Schreibende Aufrufe und Prüfungen sind begrenzt, damit ein fehlerhaftes Script weder
+die Instanz noch Microsoft Graph flutet. Bei Überschreitung kommt 429 mit der Wartezeit
+in der Antwort. Ein Onboarding, das Kunden nacheinander anlegt, läuft nie hinein.</p>
+
+<h2>Weiter</h2>
+
+<div class="next">
+  <a href="anleitung-kunde.html">
+    <strong>Kunde einrichten</strong>
+    <span>App-Registrierung per Script, dann im Portal erfassen</span>
+  </a>
+  <a href="anleitung-prtg.html">
+    <strong>PRTG-Sensor</strong>
+    <span>Ohne Container, direkt auf der PRTG-Instanz</span>
+  </a>
+</div>
+
+</main>
+
+<footer>
+  <div class="wrap">
+    <span>MIT licensed &middot; built by <a href="https://github.com/benjaminmue">benjaminmue</a></span>
+    <span><a href="https://github.com/benjaminmue/entra-secret-monitor/issues">Issues</a> &middot; <a href="https://github.com/benjaminmue/entra-secret-monitor">Source</a></span>
+  </div>
+</footer>
+
+</body>
+</html>

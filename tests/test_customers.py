@@ -490,5 +490,70 @@ class SchedulerTests(unittest.TestCase):
             scheduler.SCAN_LOCK.release()
 
 
+@needs_portal
+class CustomerKeyRuleTests(unittest.TestCase):
+    """The key field rejects uppercase and says which value to use instead."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.app, cls.db_path = build_app()
+        cls.client = cls.app.test_client()
+        sign_in_admin(cls.client)
+
+    @classmethod
+    def tearDownClass(cls):
+        try:
+            os.unlink(cls.db_path)
+        except OSError:
+            pass
+
+    def _post(self, key):
+        """Send one create request and return the rendered response body."""
+        antwort = self.client.post("/kunden/neu", data={
+            "csrf_token": csrf_token(self.client, "/kunden/neu"),
+            "key": key, "display_name": "Contoso", "tenant_id": TENANT_GUID,
+            "client_id": CLIENT_GUID, "auth_type": "secret",
+            "client_secret": SECRET, "warn_days": 30, "error_days": 14,
+            "max_channels": 45, "is_active": "y"})
+        return antwort.get_data(as_text=True)
+
+    def test_uppercase_key_is_rejected_and_names_the_lowercase_form(self):
+        # The generic pattern message left the reader guessing which rule broke.
+        seite = self._post("Contoso")
+        self.assertIn("Grossbuchstaben", seite)
+        self.assertIn("contoso", seite)
+        from portal.db import Session
+        from portal.models import Customer
+        self.assertIsNone(
+            Session.query(Customer).filter(Customer.key == "Contoso").one_or_none(),
+            "Kunde mit Grossbuchstaben wurde angelegt")
+
+    def test_uppercase_key_that_stays_invalid_lowercased_gets_the_general_rule(self):
+        seite = self._post("Contoso GmbH!")
+        self.assertIn("Grossbuchstaben", seite)
+        self.assertIn("Kleinbuchstaben, Ziffern und Bindestrich", seite)
+
+    def test_lowercase_key_is_accepted(self):
+        self._post("contoso")
+        from portal.db import Session
+        from portal.models import Customer
+        self.assertIsNotNone(
+            Session.query(Customer).filter(Customer.key == "contoso").one_or_none(),
+            "gueltiger Schluessel wurde abgelehnt")
+
+    def test_the_form_names_the_lowercase_rule_before_it_is_broken(self):
+        seite = self.client.get("/kunden/neu").get_data(as_text=True)
+        self.assertIn("Nur Kleinbuchstaben", seite)
+
+    def test_the_auth_fields_are_tagged_for_the_method_they_belong_to(self):
+        # The toggle hides what the chosen method does not use. Without the
+        # markers the script has nothing to switch and every field stays visible.
+        seite = self.client.get("/kunden/neu").get_data(as_text=True)
+        self.assertIn('data-auth-only="secret"', seite)
+        self.assertIn('data-auth-only="certificate"', seite)
+        self.assertIn("data-auth-type", seite)
+        self.assertIn("customer-form.js", seite)
+
+
 if __name__ == "__main__":
     unittest.main()

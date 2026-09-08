@@ -45,6 +45,20 @@ without a probe server is covered like every other one. Same channels, same limi
 same XML as the container, so a sensor can move from one to the other and keeps its
 history. Documentation: [docs/PRTG-SENSOR.md](docs/PRTG-SENSOR.md) (German).
 
+## Step by step
+
+Three walkthroughs with screenshots, in German, on the project page:
+
+| Guide | Covers |
+|---|---|
+| [Kunde einrichten](https://entra-monitor.bebamu.ch/anleitung-kunde.html) | App registration by script, then the customer in the portal |
+| [PRTG-Sensor](https://entra-monitor.bebamu.ch/anleitung-prtg.html) | Registration, certificate into the store, device and sensor |
+| [API, erste Schritte](https://entra-monitor.bebamu.ch/anleitung-api.html) | Issue a key, create customers, read expiry, fetch XML, handle errors |
+
+Their screenshots are generated, not taken: `tools/demo_pages.py` builds a throwaway
+instance with invented customers and renders every documented page and API response,
+so the examples cannot drift away from the code.
+
 ## Why
 
 Microsoft gives you a recommendation panel in the portal and a weekly digest mail
