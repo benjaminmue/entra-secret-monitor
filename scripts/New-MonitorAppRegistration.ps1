@@ -8,6 +8,11 @@
     Microsoft Graph application permission (Application.Read.All), consents to it,
     and attaches a credential. Prints the environment block the container expects.
 
+    By default the credential is a client secret. That is the way that works in
+    every tenant and on every monitoring host, and its expiry is exactly what
+    this project watches. -CreateCertificate switches to a certificate for the
+    tenants that restrict secrets.
+
     The permission is read-only on metadata. Graph never returns secret values,
     so the resulting credential can enumerate expiry dates and nothing else.
 
@@ -27,9 +32,13 @@
 
 .PARAMETER CreateCertificate
     Generate a self-signed key pair locally, upload the public certificate and
-    write <TenantKey>.crt and <TenantKey>.key as PEM files. This is the
-    recommended credential type: unlike a client secret it is not capped at
-    24 months, and the private key never travels through Entra.
+    write <TenantKey>.crt and <TenantKey>.key as PEM files.
+
+    Without this switch the script creates a client secret, which is the normal
+    way and works everywhere: no certificate store, no private key to place on
+    the monitoring host, no permission to grant on it. Reach for a certificate
+    when the tenant restricts client secrets through an app management policy,
+    or when 24 months is too short for the operating model.
 
 .PARAMETER CertificateYears
     Validity of the generated certificate in years. Entra does not cap this,
@@ -62,6 +71,13 @@
     or inside a terminal that cannot launch a browser.
 
 .EXAMPLE
+    The normal way, a client secret:
+
+    ./New-MonitorAppRegistration.ps1 -TenantId 00000000-1111-2222-3333-444444444444 -TenantKey contoso
+
+.EXAMPLE
+    A certificate instead, for a tenant that restricts secrets:
+
     ./New-MonitorAppRegistration.ps1 -TenantId 00000000-1111-2222-3333-444444444444 -TenantKey contoso -CreateCertificate
 
 .EXAMPLE

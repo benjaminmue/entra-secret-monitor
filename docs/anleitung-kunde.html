@@ -1,0 +1,260 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kunde einrichten - Entra Credential Monitor</title>
+<meta name="description" content="Schritt für Schritt: App-Registrierung im Kundentenant per Script anlegen und den Kunden im Portal erfassen.">
+<meta property="og:title" content="Kunde einrichten">
+<meta property="og:description" content="App-Registrierung per Script, Kunde im Portal erfassen, erste Prüfung auslösen.">
+<meta property="og:type" content="article">
+<meta property="og:url" content="https://entra-monitor.bebamu.ch/anleitung-kunde.html">
+<link rel="icon" type="image/svg+xml" href="assets/logo.svg">
+<link rel="apple-touch-icon" href="assets/logo-512.png">
+<link rel="stylesheet" href="assets/guide.css">
+</head>
+<body>
+
+<header>
+  <div class="wrap">
+    <a class="brand" href="index.html">
+      <img src="assets/logo.svg" width="30" height="30" alt="">
+      <span class="name">Entra Credential <span>Monitor</span></span>
+    </a>
+    <nav class="nav">
+      <a href="index.html">Start</a>
+      <a href="anleitung-kunde.html" aria-current="page">Kunde einrichten</a>
+      <a href="anleitung-prtg.html">PRTG-Sensor</a>
+      <a href="anleitung-api.html">API</a>
+      <a href="https://github.com/benjaminmue/entra-secret-monitor">GitHub</a>
+    </nav>
+  </div>
+</header>
+
+<section class="intro">
+  <div class="wrap">
+    <div class="kicker">Anleitung</div>
+    <h1>Kunde einrichten</h1>
+    <p class="lede">
+      Ein neuer Kundentenant ist in <strong>zehn Minuten</strong> überwacht. Das Script legt die
+      App-Registrierung an, erteilt die eine nötige Berechtigung und erzeugt das Client Secret.
+      Danach wird der Kunde im Portal erfasst.
+    </p>
+  </div>
+</section>
+
+<main class="wrap">
+
+<div class="note">
+  <p><strong>Was der Monitor im Kundentenant darf:</strong> genau eine Anwendungsberechtigung,
+  <code>Application.Read.All</code>. Microsoft Graph gibt Secret-Werte grundsätzlich nie heraus,
+  gelesen werden nur Metadaten wie Name und Ablaufdatum. Schreiben kann der Monitor nichts.</p>
+</div>
+
+<h2>Voraussetzungen</h2>
+
+<div class="tablewrap">
+<table>
+  <tr><th>Wo</th><th>Was</th></tr>
+  <tr>
+    <td>Kundentenant</td>
+    <td>Konto, das App-Registrierungen anlegen und Admin Consent erteilen darf.
+        Application Administrator plus Privileged Role Administrator, oder Global Administrator.</td>
+  </tr>
+  <tr>
+    <td>Eigener Rechner</td>
+    <td>PowerShell 7 und das Modul <code>Microsoft.Graph.Applications</code>.
+        Installation: <code>Install-Module Microsoft.Graph.Applications -Scope CurrentUser</code></td>
+  </tr>
+  <tr>
+    <td>Portal</td>
+    <td>Konto mit der Rolle Administrator oder Techniker.</td>
+  </tr>
+</table>
+</div>
+
+<h2>Schritt für Schritt</h2>
+
+<div class="step">
+  <div class="n">1</div>
+  <div class="body">
+    <h3>Verzeichnis-ID des Kunden heraussuchen</h3>
+    <p>Im Entra-Portal des Kunden unter <em>Übersicht</em> steht die Verzeichnis-ID (Tenant-ID).
+    Alternativ genügt eine verifizierte Domain, etwa <code>contoso.ch</code>.</p>
+  </div>
+</div>
+
+<div class="step">
+  <div class="n">2</div>
+  <div class="body">
+    <h3>Script ausführen</h3>
+    <p>Das Script liegt im Repository unter <code>scripts/New-MonitorAppRegistration.ps1</code>.
+    Der Schlüssel nach <code>-TenantKey</code> ist der technische Name des Kunden und muss
+    kleingeschrieben sein.</p>
+<pre><code>./New-MonitorAppRegistration.ps1 `
+  -TenantId 8f3a1c22-9b41-4d7e-a512-6ce0f9b27d44 `
+  -TenantKey contoso</code></pre>
+    <p>Ohne weiteren Schalter legt das Script ein <strong>Client Secret</strong> mit 24 Monaten
+    Laufzeit an. Das ist der Normalfall und funktioniert in jedem Tenant. Es öffnet sich die
+    Anmeldung am Kundentenant; über SSH oder in einem Terminal ohne Browser hilft
+    <code>-UseDeviceCode</code>.</p>
+    <div class="note">
+      <p>Braucht der Tenant ein Zertifikat, weil eine App Management Policy Client Secrets
+      verbietet oder kürzer begrenzt, kommt <code>-CreateCertificate</code> dazu. Das Script
+      schreibt dann <code>contoso.crt</code> und <code>contoso.key</code> ins
+      Arbeitsverzeichnis, und im Portal wird statt des Secrets deren Inhalt hinterlegt.</p>
+    </div>
+
+    <figure>
+      <img src="assets/ps-kunde-anlegen.webp" alt="PowerShell-Fenster mit der Ausgabe des Scripts New-MonitorAppRegistration.ps1: App-Registrierung, Service Principal, erteilte Berechtigung, erzeugtes Client Secret und der Konfigurationsblock." loading="lazy">
+      <figcaption>Ein Durchlauf mit erfundenen Werten. Das Script meldet jeden Schritt einzeln,
+      am Ende steht der Konfigurationsblock.</figcaption>
+    </figure>
+  </div>
+</div>
+
+<div class="step">
+  <div class="n">3</div>
+  <div class="body">
+    <h3>Notieren, was gebraucht wird</h3>
+    <p>Aus der Ausgabe werden drei Werte übernommen. Das Secret erscheint genau einmal,
+    direkt nach dem Anlegen.</p>
+    <div class="tablewrap">
+    <table>
+      <tr><th>Wert</th><th>Woher</th><th>Wofür</th></tr>
+      <tr><td>Tenant-ID</td><td>Parameter <code>-TenantId</code></td><td>Feld im Portal</td></tr>
+      <tr><td>AppId</td><td>Abschnitt <em>App registration</em></td><td>Client-ID im Portal</td></tr>
+      <tr><td>Client Secret</td><td>Abschnitt <em>Creating client secret</em></td><td>Feld im Portal</td></tr>
+      <tr><td><code>contoso.crt</code>, <code>contoso.key</code></td><td>nur mit <code>-CreateCertificate</code></td><td>statt des Secrets</td></tr>
+    </table>
+    </div>
+  </div>
+</div>
+
+<div class="step">
+  <div class="n">4</div>
+  <div class="body">
+    <h3>Kunde im Portal anlegen</h3>
+    <p>Im Portal auf <em>Kunde anlegen</em>. Der Schlüssel ist derselbe wie
+    <code>-TenantKey</code> im Script.</p>
+
+    <div class="warn">
+      <p><strong>Der Schlüssel muss kleingeschrieben sein.</strong> Erlaubt sind
+      Kleinbuchstaben, Ziffern und Bindestrich, 2 bis 48 Zeichen. Er erscheint später in
+      der PRTG-URL und lässt sich nach dem Anlegen nicht mehr ändern. Wer den Anzeigenamen
+      hineinschreibt, bekommt diese Meldung:</p>
+    </div>
+
+    <figure>
+      <img src="assets/key-fehler.webp" alt="Formular Kunde anlegen mit der Fehlermeldung: Grossbuchstaben sind im Schlüssel nicht erlaubt. Verwende contoso." loading="lazy">
+      <figcaption>Die Meldung nennt den Wert, der stattdessen gehört, statt nur die Regel
+      zu wiederholen.</figcaption>
+    </figure>
+
+    <p>Bei <em>Authentisierung</em> steht <strong>Client Secret</strong> bereits als Vorgabe.
+    Das Formular zeigt dann nur das Secret-Feld, die beiden PEM-Felder sind ausgeblendet.
+    Hier kommt der Wert aus dem Abschnitt <em>Creating client secret</em> hinein.</p>
+
+    <figure>
+      <img src="assets/form-secret.webp" alt="Formular Kunde anlegen mit der Vorgabe Client Secret: nur das Feld Client Secret ist sichtbar, die beiden PEM-Felder sind ausgeblendet." loading="lazy">
+      <figcaption>Vorgabe Client Secret. Entra kappt die Laufzeit bei 24 Monaten. Das
+      Portal meldet auch den Ablauf des eigenen Zugangsdatums, solange nur eines
+      hinterlegt ist: liegen zwei Secrets derselben App parallel, zählt die längere
+      Restlaufzeit, und das ablaufende bleibt unsichtbar.</figcaption>
+    </figure>
+
+    <p>Nur wenn der Tenant keine Client Secrets zulässt, wird auf <strong>Zertifikat</strong>
+    umgestellt. Dann verschwindet das Secret-Feld und die beiden PEM-Felder erscheinen.</p>
+
+    <figure>
+      <img src="assets/form-zertifikat.webp" alt="Dasselbe Formular mit Auswahl Zertifikat: sichtbar sind die Felder Zertifikat PEM und Privater Schlüssel PEM, das Feld Client Secret ist ausgeblendet." loading="lazy">
+      <figcaption>Auswahl Zertifikat. Der Inhalt von <code>contoso.crt</code> kommt in das
+      obere Feld, der von <code>contoso.key</code> in das untere, jeweils mit BEGIN- und
+      END-Zeile.</figcaption>
+    </figure>
+  </div>
+</div>
+
+<div class="step">
+  <div class="n">5</div>
+  <div class="body">
+    <h3>Schwellen setzen</h3>
+    <p>Die Vorgaben passen für die meisten Kunden.</p>
+    <div class="tablewrap">
+    <table>
+      <tr><th>Feld</th><th>Vorgabe</th><th>Wirkung</th></tr>
+      <tr><td>Warnung ab Restlaufzeit</td><td>30 Tage</td><td>Kanal wird gelb</td></tr>
+      <tr><td>Fehler ab Restlaufzeit</td><td>14 Tage</td><td>Kanal wird rot</td></tr>
+      <tr><td>Maximale PRTG-Kanäle</td><td>45</td><td>PRTG erlaubt 50, drei davon sind die Zusammenfassung</td></tr>
+      <tr><td>Anwendungen ausschliessen</td><td>leer</td><td>Für selbst rotierende Zertifikate wie <code>ConnectSyncProvisioning</code></td></tr>
+      <tr><td>Enterprise Apps mitprüfen</td><td>aus</td><td>Nimmt SAML-Signaturzertifikate dazu, vervielfacht die Kanäle</td></tr>
+    </table>
+    </div>
+    <p><em>Anlegen und prüfen</em> speichert den Kunden und startet sofort einen ersten Lauf.</p>
+  </div>
+</div>
+
+<div class="step">
+  <div class="n">6</div>
+  <div class="body">
+    <h3>Ergebnis kontrollieren</h3>
+    <p>Nach dem ersten Lauf steht der Kunde in der Übersicht, sortiert nach Dringlichkeit.</p>
+    <figure>
+      <img src="assets/dashboard.webp" alt="Kundenübersicht des Portals mit fünf Beispielkunden, Restlaufzeiten von 5 bis 210 Tagen, Statusangaben Fehler, Warnung und in Ordnung." loading="lazy">
+      <figcaption>Beispieldaten. Die Balken zeigen die Restlaufzeit auf einer Skala von
+      180 Tagen, rechts steht der Zeitpunkt der letzten Prüfung.</figcaption>
+    </figure>
+    <p>Ein Klick auf den Kunden öffnet die Einzelansicht mit allen Credentials, den
+    Sensor-URLs und dem Verlauf der Läufe.</p>
+    <figure>
+      <img src="assets/kunde-detail.webp" alt="Detailansicht eines Kunden mit Liste der überwachten Credentials, Restlaufzeiten, Sensor-URLs und Schaltflächen für Prüfung und Token." loading="lazy">
+      <figcaption>Einzelansicht. Von hier aus lässt sich eine Prüfung erzwingen und der
+      PRTG-Token neu erzeugen.</figcaption>
+    </figure>
+  </div>
+</div>
+
+<h2>Wenn der erste Lauf scheitert</h2>
+
+<p>Der Fehler steht im Klartext beim Kunden, mitsamt dem AADSTS-Code von Entra.</p>
+
+<div class="tablewrap">
+<table>
+  <tr><th>Meldung</th><th>Ursache</th></tr>
+  <tr><td><code>AADSTS90002</code> Tenant not found</td><td>Tenant-ID falsch</td></tr>
+  <tr><td><code>AADSTS700016</code> Application not found</td><td>Client-ID falsch oder App im falschen Tenant</td></tr>
+  <tr><td><code>AADSTS7000215</code> Invalid client secret</td><td>Secret falsch oder abgelaufen</td></tr>
+  <tr><td><code>AADSTS700027</code> client assertion</td><td>Zertifikat nicht in der App-Registrierung hinterlegt</td></tr>
+  <tr><td>HTTP 403 auf <code>/applications</code></td><td><code>Application.Read.All</code> fehlt oder kein Admin Consent</td></tr>
+</table>
+</div>
+
+<div class="note">
+  <p>Ein 403 unmittelbar nach dem Anlegen ist normal. Der Consent braucht im Tenant
+  bis zu einer Minute, bis er repliziert ist. Einmal <em>Jetzt prüfen</em> genügt.</p>
+</div>
+
+<h2>Weiter</h2>
+
+<div class="next">
+  <a href="anleitung-prtg.html">
+    <strong>PRTG-Sensor einrichten</strong>
+    <span>Sensor pro Kunde, ohne Host beim Kunden</span>
+  </a>
+  <a href="anleitung-api.html">
+    <strong>API benutzen</strong>
+    <span>Kunden anlegen und auslesen, ohne Oberfläche</span>
+  </a>
+</div>
+
+</main>
+
+<footer>
+  <div class="wrap">
+    <span>MIT licensed &middot; built by <a href="https://github.com/benjaminmue">benjaminmue</a></span>
+    <span><a href="https://github.com/benjaminmue/entra-secret-monitor/issues">Issues</a> &middot; <a href="https://github.com/benjaminmue/entra-secret-monitor">Source</a></span>
+  </div>
+</footer>
+
+</body>
+</html>

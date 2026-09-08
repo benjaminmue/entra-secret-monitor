@@ -43,7 +43,7 @@
   .brand{display:flex; align-items:center; gap:10px; font-weight:700; font-size:1.05rem; letter-spacing:-.01em}
   .brand img{display:block; border-radius:7px}
   .brand .name span{color:var(--green)}
-  .nav{display:flex; gap:20px; font-size:.93rem}
+  .nav{display:flex; gap:20px; font-size:.93rem; flex-wrap:wrap; justify-content:flex-end}
   .nav a{color:#cfe3f2; text-decoration:none}
   .nav a:hover{color:#fff; text-decoration:underline}
 
@@ -102,13 +102,12 @@
     display:inline-block; font-size:.72rem; font-weight:700; letter-spacing:.06em;
     text-transform:uppercase; padding:3px 9px; border-radius:20px; margin-bottom:.9rem;
   }
-  .tag-a{background:var(--blue-light); color:var(--blue-dark)}
   .tag-b{background:var(--green-bg); color:var(--green-dark)}
   .tag-c{background:#fdf0e2; color:#a35c00}
-  .three{display:grid; grid-template-columns:repeat(3,1fr); gap:26px; align-items:start;
+  .ways{display:grid; grid-template-columns:repeat(2,1fr); gap:26px; align-items:start;
          margin-top:2rem}
-  .three>*{min-width:0}
-  @media (max-width:940px){ .three{grid-template-columns:1fr; gap:26px} }
+  .ways>*{min-width:0}
+  @media (max-width:940px){ .ways{grid-template-columns:1fr; gap:26px} }
   .card ul{margin:.8rem 0 0; padding-left:1.1rem; font-size:.94rem; color:var(--muted)}
   .card li{margin:.32rem 0}
   .card pre{
@@ -222,8 +221,9 @@
     <nav class="nav">
       <a href="#why">Why</a>
       <a href="#sensor">PRTG</a>
-      <a href="#flavours">Flavours</a>
+      <a href="#flavours">Portal &amp; sensor</a>
       <a href="#api">API</a>
+      <a href="anleitung-kunde.html">Anleitungen</a>
       <a href="https://github.com/benjaminmue/entra-secret-monitor">GitHub</a>
     </nav>
   </div>
@@ -239,11 +239,11 @@
       One container, read-only, every tenant you look after.
     </p>
     <div class="run">
-      <span class="prompt">$</span> <span class="cmd">docker compose up -d</span>
+      <span class="prompt">$</span> <span class="cmd">docker compose -f docker-compose.portal.yml up -d</span>
     </div>
     <div class="cta">
       <a class="btn btn-primary" href="https://github.com/benjaminmue/entra-secret-monitor">Get it on GitHub</a>
-      <a class="btn btn-ghost" href="#flavours">Which flavour do I need?</a>
+      <a class="btn btn-ghost" href="#flavours">Portal or sensor?</a>
     </div>
   </div>
 </section>
@@ -275,10 +275,10 @@
       </div>
     </div>
     <figure>
-      <img src="assets/service_clean.webp" width="1600" height="1080"
-           alt="Web view listing two tenants with their credentials, each showing days remaining, expiry date, type and application name. The shortest runtime is highlighted in red.">
+      <img src="assets/dashboard.webp" width="1280" height="1166"
+           alt="Portal overview listing five customer tenants with shortest remaining runtime, status, credential counts and the time of the last check.">
       <figcaption>
-        Every tenant on one page, sorted by urgency. Numbers below the warning
+        Every customer on one page, sorted by urgency. Numbers below the warning
         threshold turn orange, below the error threshold red.
       </figcaption>
     </figure>
@@ -295,7 +295,7 @@
       limits already set. No script, no scheduled task, no return-code parsing.
     </p>
     <div class="sensor">
-      <pre class="xml"><span class="c">&lt;!-- /prtg?tenant=contoso --&gt;</span>
+      <pre class="xml"><span class="c">&lt;!-- /prtg/&lt;token&gt; --&gt;</span>
 <span class="t">&lt;prtg&gt;</span>
   <span class="t">&lt;result&gt;</span>
     <span class="t">&lt;channel&gt;</span>Minimale Restlaufzeit<span class="t">&lt;/channel&gt;</span>
@@ -327,29 +327,14 @@
 
 <section id="flavours">
   <div class="wrap">
-    <div class="kicker">Three flavours</div>
-    <h2>A handful of tenants, a customer base, or no container at all</h2>
+    <div class="kicker">Two ways</div>
+    <h2>A customer base, or no container at all</h2>
     <p class="sub">
-      All three ship from the same repository and share the same Graph logic, so a
-      sensor keeps its channel names and history when you move between them. Pick by
-      how many directories you look after and who needs to add one.
+      Both ship from the same repository and share the same Graph logic, so a sensor
+      keeps its channel names and history when you move between them. Pick by whether
+      you want one place that holds every customer, or nothing to host at all.
     </p>
-    <div class="three">
-      <div class="card">
-        <span class="tag tag-a">Classic service</span>
-        <h3>Configured in a file, nothing to maintain</h3>
-        <p class="sub" style="font-size:.94rem">
-          Stateless. Tenants come from environment variables or a small JSON file.
-          Standard library only, so there is no dependency tree to keep patching.
-        </p>
-        <ul>
-          <li>No database, no accounts, no state</li>
-          <li>Web page, PRTG XML and JSON</li>
-          <li>Optional token, optional push to a PRTG sensor</li>
-          <li>Right for tenants you administer yourself</li>
-        </ul>
-        <pre>docker compose up -d</pre>
-      </div>
+    <div class="ways">
       <div class="card">
         <span class="tag tag-b">Portal</span>
         <h3>Customers added in the browser</h3>
@@ -502,15 +487,41 @@ curl -X POST https://portal/api/v1/customers \
         <p>Runs as UID 10001, read-only root filesystem, no new privileges.</p>
       </div>
       <div>
-        <h3>Certificate or secret</h3>
-        <p>Certificate authentication is preferred, since Entra caps secrets at
-           24 months.</p>
+        <h3>Secret or certificate</h3>
+        <p>A client secret is the default for operational reasons and works in
+           every tenant. A certificate is the stronger credential, and the
+           answer where a policy restricts secrets.</p>
       </div>
       <div>
         <h3>Tested</h3>
-        <p>328 tests covering aggregation, both renderers, the request path and the
+        <p>465 tests covering aggregation, both renderers, the request path and the
            authentication flows.</p>
       </div>
+    </div>
+  </div>
+</section>
+
+<section class="alt" id="guides">
+  <div class="wrap">
+    <div class="kicker">Step by step</div>
+    <h2>Guides, in German</h2>
+    <p class="sub">
+      The three walkthroughs an engineer actually needs: onboarding a customer tenant,
+      wiring up the PRTG sensor, and driving the whole thing over the API.
+    </p>
+    <div class="next" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:16px;margin-top:2rem">
+      <a href="anleitung-kunde.html" style="display:block;border:1px solid var(--line);border-radius:9px;padding:18px 20px;text-decoration:none;color:var(--fg);background:var(--bg)">
+        <strong style="display:block;color:var(--blue-dark)">Kunde einrichten</strong>
+        <span style="font-size:.92rem;color:var(--muted)">App registration by script, then the customer in the portal</span>
+      </a>
+      <a href="anleitung-prtg.html" style="display:block;border:1px solid var(--line);border-radius:9px;padding:18px 20px;text-decoration:none;color:var(--fg);background:var(--bg)">
+        <strong style="display:block;color:var(--blue-dark)">PRTG-Sensor</strong>
+        <span style="font-size:.92rem;color:var(--muted)">One sensor per tenant, no host at the customer</span>
+      </a>
+      <a href="anleitung-api.html" style="display:block;border:1px solid var(--line);border-radius:9px;padding:18px 20px;text-decoration:none;color:var(--fg);background:var(--bg)">
+        <strong style="display:block;color:var(--blue-dark)">API, erste Schritte</strong>
+        <span style="font-size:.92rem;color:var(--muted)">Create customers, read expiry, fetch XML, handle errors</span>
+      </a>
     </div>
   </div>
 </section>

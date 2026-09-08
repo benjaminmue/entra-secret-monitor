@@ -31,7 +31,7 @@ ROOT = Path(__file__).resolve().parent.parent
 OUTPUT = ROOT / "docs" / "FUNCTIONS.md"
 # portal/ gibt es nur auf dem Portal-Branch; fehlt es, wird es
 # uebersprungen und das Inventar deckt nur den klassischen Dienst ab.
-SOURCE_DIRS = ("app", "portal")
+SOURCE_DIRS = ("app", "portal", "tools")
 
 # Rümpfe unterhalb dieser Grösse sind zwangsläufig ähnlich, etwa ein einzelnes
 # return. Sie als Fund zu melden erzeugt nur Rauschen.

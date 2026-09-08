@@ -27,3 +27,7 @@ __pycache__/
 Thumbs.db
 .gstack/
 .coverage
+
+# Ausgabe von tools/demo_pages.py: gerenderte Seiten und echte Zufallstoken
+# einer Wegwerfinstanz. Gehoert nie ins Repo.
+/demo-pages/

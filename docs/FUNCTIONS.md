@@ -8,8 +8,8 @@ Implementierungen derselben Sache werden.
 
 | Kennzahl | Wert |
 |---|---|
-| Module | 26 |
-| Funktionen | 257 |
+| Module | 30 |
+| Funktionen | 279 |
 | Ohne Docstring | 4 |
 | Namensdubletten | 0 |
 | Strukturdubletten | 0 |
@@ -188,7 +188,9 @@ nicht eine Ausnahme vom Aufräumen.
 | Zeile | Funktion | Rückgabe | Beschreibung |
 |---|---|---|---|
 | 34 | `pre_validate(self, form)` | kein Rückgabewert | Reject anything that is not a GUID before the form is used. |
-| 123 | `validate(self, extra_validators=None)` | Wert | Enforce that the chosen authentication method is actually filled in. |
+| 41 | `schluessel_hinweis(wert)` | Wert | Return the specific reason why a customer key is invalid, or None. |
+| 75 | `pre_validate(self, form)` | kein Rückgabewert | Reject an invalid key with the reason that applies to this value. |
+| 166 | `validate(self, extra_validators=None)` | Wert | Enforce that the chosen authentication method is actually filled in. |
 
 ### `portal/models.py`
 
@@ -293,24 +295,24 @@ nicht eine Ausnahme vom Aufräumen.
 
 | Zeile | Funktion | Rückgabe | Beschreibung |
 |---|---|---|---|
-| 85 | `_grenzen()` | Wert | Build the three limits from the running configuration. |
-| 96 | `_praefix(roh)` | Wert | The lookup prefix of a presented key, or empty when it has no shape. |
-| 102 | `_fehlversuch_kennung(roh)` | Wert | Identify what a failed authentication is counted against. |
-| 130 | `zu_schnell(wartezeit, meldung)` | Wert | One 429 with the header a well behaved client honours. |
-| 141 | `fehler(status, code, meldung, felder=None)` | Wert | Render one error response. |
-| 154 | `schluessel_aus_anfrage()` | Wert | Read the bearer token from the Authorization header, or None. |
-| 162 | `finde_schluessel(roh)` | Wert | Resolve a presented key to its record, or None. |
-| 189 | `authentifiziere(schreibend=False)` | Wert | Resolve and authorise the presented key, or return a ready error response. |
-| 258 | `benoetigt_schluessel(schreibend=False)` | Wert | Decorator: require a valid API key, optionally one that may write. |
-| 264 | `dekorator(sicht)` | Wert | _ohne Docstring_ |
-| 266 | `huelle(*args, **kwargs)` | Wert | _ohne Docstring_ |
-| 280 | `zeitstempel(wert)` | Wert | ISO 8601 in UTC, oder None. |
-| 289 | `sensor_urls(kunde)` | Wert | The externally reachable sensor URLs of one customer. |
-| 300 | `lade_credentials(kunden_ids)` | Wert | Load the stored credentials of many customers in one query. |
-| 321 | `zustand_und_befunde(kunde, credentials)` | Wert | The overall state plus the readable findings for one customer. |
-| 336 | `kunde_als_json(kunde, mit_credentials=False, credentials=None)` | Wert | Render one customer. |
-| 387 | `credential_als_json(eintrag)` | Wert | Render one stored credential. Never carries a secret value. |
-| 402 | `hole_kunde(schluessel)` | Wert | Load a customer by its key, or None. |
+| 84 | `_grenzen()` | Wert | Build the three limits from the running configuration. |
+| 95 | `_praefix(roh)` | Wert | The lookup prefix of a presented key, or empty when it has no shape. |
+| 101 | `_fehlversuch_kennung(roh)` | Wert | Identify what a failed authentication is counted against. |
+| 129 | `zu_schnell(wartezeit, meldung)` | Wert | One 429 with the header a well behaved client honours. |
+| 140 | `fehler(status, code, meldung, felder=None)` | Wert | Render one error response. |
+| 153 | `schluessel_aus_anfrage()` | Wert | Read the bearer token from the Authorization header, or None. |
+| 161 | `finde_schluessel(roh)` | Wert | Resolve a presented key to its record, or None. |
+| 188 | `authentifiziere(schreibend=False)` | Wert | Resolve and authorise the presented key, or return a ready error response. |
+| 257 | `benoetigt_schluessel(schreibend=False)` | Wert | Decorator: require a valid API key, optionally one that may write. |
+| 263 | `dekorator(sicht)` | Wert | _ohne Docstring_ |
+| 265 | `huelle(*args, **kwargs)` | Wert | _ohne Docstring_ |
+| 279 | `zeitstempel(wert)` | Wert | ISO 8601 in UTC, oder None. |
+| 288 | `sensor_urls(kunde)` | Wert | The externally reachable sensor URLs of one customer. |
+| 299 | `lade_credentials(kunden_ids)` | Wert | Load the stored credentials of many customers in one query. |
+| 320 | `zustand_und_befunde(kunde, credentials)` | Wert | The overall state plus the readable findings for one customer. |
+| 335 | `kunde_als_json(kunde, mit_credentials=False, credentials=None)` | Wert | Render one customer. |
+| 386 | `credential_als_json(eintrag)` | Wert | Render one stored credential. Never carries a secret value. |
+| 401 | `hole_kunde(schluessel)` | Wert | Load a customer by its key, or None. |
 | 430 | `als_ganzzahl(wert)` | Wert | Read one integer from the request, or None when it is not one. |
 | 447 | `text(daten, feld, kunde=None, standard='')` | Wert | Read one text field, falling back to the stored value. |
 | 456 | `zahl(daten, feld, standard)` | Wert | Read one integer field, falling back to the given default. |
@@ -318,20 +320,20 @@ nicht eine Ausnahme vom Aufräumen.
 | 491 | `pruefe_schwellen(daten, kunde=None)` | Wert | Check the pair of thresholds in the state it would end up in. |
 | 512 | `pruefe_zugangsdaten(daten, kunde=None)` | Wert | Check that the resulting authentication method has usable material. |
 | 551 | `pruefe_anlage(daten)` | Wert | Validate the body of a create request, returning a dict of field errors. |
-| 570 | `pruefe_aenderung(daten, kunde)` | Wert | Validate a change against the state the customer would end up in. |
-| 579 | `uebernehme_zugangsdaten(kunde, daten, schluesselmaterial)` | kein Rückgabewert | Store the credential that matches the chosen method. |
-| 621 | `wurzel()` | Wert | Entry point: version and the available endpoints. |
-| 634 | `openapi_document()` | Wert | The machine readable description of this instance. |
-| 652 | `kunden_liste()` | Wert | List every customer with its current summary. |
-| 664 | `probleme()` | Wert | Only the customers that need attention, with a readable finding each. |
-| 712 | `kunde_anlegen()` | Wert | Create a customer, store its credential and schedule a daily slot. |
-| 759 | `kunde_lesen(key)` | Wert | One customer including its stored credentials. |
-| 769 | `kunde_aendern(key)` | Wert | Change a customer. Fields left out keep their value. |
-| 810 | `kunde_loeschen(key)` | Wert | Remove a customer with its history. |
-| 825 | `kunde_pruefen(key)` | Wert | Run a scan for this customer right now. |
-| 869 | `kunde_credentials(key)` | Wert | The stored credentials of one customer, shortest runtime first. |
-| 885 | `kunde_urls(key)` | Wert | The sensor URLs of one customer. |
-| 895 | `kunde_token(key)` | Wert | Issue a new PRTG token; the previous sensor URL stops serving data. |
+| 571 | `pruefe_aenderung(daten, kunde)` | Wert | Validate a change against the state the customer would end up in. |
+| 580 | `uebernehme_zugangsdaten(kunde, daten, schluesselmaterial)` | kein Rückgabewert | Store the credential that matches the chosen method. |
+| 622 | `wurzel()` | Wert | Entry point: version and the available endpoints. |
+| 635 | `openapi_document()` | Wert | The machine readable description of this instance. |
+| 653 | `kunden_liste()` | Wert | List every customer with its current summary. |
+| 665 | `probleme()` | Wert | Only the customers that need attention, with a readable finding each. |
+| 713 | `kunde_anlegen()` | Wert | Create a customer, store its credential and schedule a daily slot. |
+| 760 | `kunde_lesen(key)` | Wert | One customer including its stored credentials. |
+| 770 | `kunde_aendern(key)` | Wert | Change a customer. Fields left out keep their value. |
+| 811 | `kunde_loeschen(key)` | Wert | Remove a customer with its history. |
+| 826 | `kunde_pruefen(key)` | Wert | Run a scan for this customer right now. |
+| 870 | `kunde_credentials(key)` | Wert | The stored credentials of one customer, shortest runtime first. |
+| 886 | `kunde_urls(key)` | Wert | The sensor URLs of one customer. |
+| 896 | `kunde_token(key)` | Wert | Issue a new PRTG token; the previous sensor URL stops serving data. |
 
 ### `portal/views/apikeys.py`
 
@@ -436,3 +438,43 @@ nicht eine Ausnahme vom Aufräumen.
 | 140 | `reset_password(user_id)` | Wert | Issue a new one time password for an account. |
 | 161 | `reset_totp(user_id)` | Wert | Clear the second factor so the account enrols a new authenticator. |
 | 182 | `delete(user_id)` | Wert | Delete an account, except the last administrator and oneself. |
+
+### `tools/demo_pages.py`
+
+| Zeile | Funktion | Rückgabe | Beschreibung |
+|---|---|---|---|
+| 76 | `zugangsdaten(eintrag, schluessel, jetzt)` | Wert | Build the credential fields for one invented customer. |
+| 108 | `fuelle_daten(app)` | kein Rückgabewert | Insert the invented customers, their credentials and one failed run. |
+| 168 | `schreibe(ziel, name, inhalt)` | kein Rückgabewert | Write one rendered page with its asset links pointing next to the file. |
+| 182 | `sammle_api_antworten(app, ziel)` | kein Rückgabewert | Call every documented endpoint once and write the real answers as JSON. |
+| 285 | `main()` | kein Rückgabewert | Render every documented page into the target directory. |
+
+### `tools/inventory.py`
+
+| Zeile | Funktion | Rückgabe | Beschreibung |
+|---|---|---|---|
+| 87 | `iter_source_files()` | Generator | Yield every Python file of the project, sorted, tests excluded. |
+| 95 | `signature_of(node)` | Wert | Render a function signature the way it is written in the source. |
+| 119 | `returns_of(node)` | Wert | Describe what the function hands back. |
+| 135 | `summary_of(node)` | Wert | First sentence of the docstring, or a marker when there is none. |
+| 144 | `structure_hash(node)` | Wert | Hash the shape of a body with all identifiers and constants removed. |
+| 159 | `collect()` | Wert | Return one record per function found in the project. |
+| 182 | `duplicate_names(functions)` | Wert | Names defined in more than one module, minus the accepted ones. |
+| 195 | `duplicate_structures(functions)` | Wert | Bodies of a meaningful size that share their shape. |
+| 212 | `render(functions)` | Wert | Build the Markdown document. |
+| 292 | `main(argv=None)` | Wert | Write the inventory, or verify it is current and free of new duplicates. |
+
+### `tools/portal_sandbox.py`
+
+| Zeile | Funktion | Rückgabe | Beschreibung |
+|---|---|---|---|
+| 32 | `build_app(bootstrap_password=BOOTSTRAP_PASSWORD, **zusatz)` | Wert | Create a portal app on a throwaway SQLite file with the scheduler off. |
+| 62 | `csrf_token(client, path)` | Wert | Read the CSRF token from a rendered form. |
+| 76 | `sign_in_admin(client, bootstrap_password=BOOTSTRAP_PASSWORD, new_password=NEW_PASSWORD)` | kein Rückgabewert | Walk the bootstrap account through TOTP enrollment and password change. |
+
+### `tools/terminal_shot.py`
+
+| Zeile | Funktion | Rückgabe | Beschreibung |
+|---|---|---|---|
+| 89 | `zeile_zu_html(zeile)` | Wert | Turn one prefixed source line into a span of the matching colour. |
+| 107 | `main()` | Wert | Render the input file into a terminal looking HTML page. |

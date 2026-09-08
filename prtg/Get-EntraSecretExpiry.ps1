@@ -58,9 +58,14 @@
 .PARAMETER CertificateThumbprint
     Thumbprint of a certificate in LocalMachine\My or CurrentUser\My of the PRTG
     instance whose private key is readable by the PRTG service account. Takes
-    precedence over ClientSecret and is the recommended way on an instance that
-    serves several customers: the sensor parameters then hold no secret at all,
-    and unlike a client secret a certificate is not capped at 24 months.
+    precedence over ClientSecret.
+
+    The normal way is a client secret in placeholder 3: it works in every tenant,
+    needs nothing in the certificate store and no permission on a private key.
+    A certificate is the answer to a tenant that restricts client secrets, or to
+    an operating model where 24 months of validity is too short. It costs an
+    import per customer and a permission on the private key, which is the step
+    that goes wrong most often.
 
 .PARAMETER WarnDays
     Remaining days below which a channel turns yellow. Default 30.

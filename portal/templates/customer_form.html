@@ -17,7 +17,8 @@
         {{ form.key.label }}
         {{ form.key(readonly=customer is not none) }}
         <span class="hint">Technischer Schlüssel, erscheint in der PRTG-URL und im Log.
-          Nach dem Anlegen unveränderlich.</span>
+          <strong>Nur Kleinbuchstaben</strong>, Ziffern und Bindestrich, zum Beispiel
+          <span class="mono">contoso</span>. Nach dem Anlegen unveränderlich.</span>
       </div>
       <div class="field">{{ form.display_name.label }}{{ form.display_name() }}</div>
       <div class="field">
@@ -35,20 +36,22 @@
   <div class="card">
     <h2>Authentisierung</h2>
     <div class="field">
-      {{ form.auth_type.label }}{{ form.auth_type() }}
-      <span class="hint">Zertifikate laufen bis zu zehn Jahre, Client Secrets kappt Entra
-        bei 24 Monaten. Für 50 Kunden ist das Zertifikat der wartungsärmere Weg.</span>
+      {{ form.auth_type.label }}{{ form.auth_type(**{"data-auth-type": "1"}) }}
+      <span class="hint">Das Client Secret ist der betriebliche Normalfall: es funktioniert
+        in jedem Tenant und braucht keinen Zertifikatsspeicher. Entra kappt es bei
+        24 Monaten. Das Zertifikat ist das stärkere Zugangsdatum und die Wahl für Tenants,
+        die Client Secrets per Richtlinie verbieten oder kürzer begrenzen.</span>
     </div>
-    <div class="field">
+    <div class="field" data-auth-only="secret">
       {{ form.client_secret.label }}{{ form.client_secret(autocomplete="new-password") }}
-      <span class="hint">Nur bei Auswahl "Client Secret" ausfüllen.
+      <span class="hint">Wert aus der App-Registrierung, Zertifikate und Geheimnisse.
         {% if customer %}Leer lassen behält den gespeicherten Wert.{% endif %}</span>
     </div>
-    <div class="field">
+    <div class="field" data-auth-only="certificate">
       {{ form.cert_pem.label }}{{ form.cert_pem(spellcheck="false") }}
       <span class="hint">PEM inklusive BEGIN- und END-Zeile.</span>
     </div>
-    <div class="field">
+    <div class="field" data-auth-only="certificate">
       {{ form.key_pem.label }}{{ form.key_pem(spellcheck="false") }}
       <span class="hint">Unverschlüsselter privater Schlüssel im PKCS8-Format.
         Wird sofort verschlüsselt abgelegt.</span>
@@ -87,4 +90,8 @@
        if customer else url_for('dashboard.index') }}">Abbrechen</a>
   </div>
 </form>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='customer-form.js') }}" defer></script>
 {% endblock %}

@@ -1,0 +1,280 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PRTG-Sensor einrichten - Entra Credential Monitor</title>
+<meta name="description" content="Schritt für Schritt: App-Registrierung per Script anlegen, PowerShell-Sensor auf der PRTG-Instanz ablegen und Sensor konfigurieren.">
+<meta property="og:title" content="PRTG-Sensor einrichten">
+<meta property="og:description" content="Ein Sensor pro Kundentenant, direkt auf der PRTG-Instanz. Kein Host beim Kunden.">
+<meta property="og:type" content="article">
+<meta property="og:url" content="https://entra-monitor.bebamu.ch/anleitung-prtg.html">
+<link rel="icon" type="image/svg+xml" href="assets/logo.svg">
+<link rel="apple-touch-icon" href="assets/logo-512.png">
+<link rel="stylesheet" href="assets/guide.css">
+</head>
+<body>
+
+<header>
+  <div class="wrap">
+    <a class="brand" href="index.html">
+      <img src="assets/logo.svg" width="30" height="30" alt="">
+      <span class="name">Entra Credential <span>Monitor</span></span>
+    </a>
+    <nav class="nav">
+      <a href="index.html">Start</a>
+      <a href="anleitung-kunde.html">Kunde einrichten</a>
+      <a href="anleitung-prtg.html" aria-current="page">PRTG-Sensor</a>
+      <a href="anleitung-api.html">API</a>
+      <a href="https://github.com/benjaminmue/entra-secret-monitor">GitHub</a>
+    </nav>
+  </div>
+</header>
+
+<section class="intro">
+  <div class="wrap">
+    <div class="kicker">Anleitung</div>
+    <h1>PRTG-Sensor einrichten</h1>
+    <p class="lede">
+      Ein PowerShell-Script auf der eigenen PRTG-Instanz, <strong>ein Sensor pro Kundentenant</strong>.
+      Kein Container, kein Portal, kein Server beim Kunden. Der Sensor braucht nur ausgehend
+      443 zu Microsoft.
+    </p>
+  </div>
+</section>
+
+<main class="wrap">
+
+<div class="note">
+  <p><strong>Warum das ohne Probe beim Kunden geht:</strong> Entra ID und Microsoft Graph sind
+  öffentliche Endpunkte. Der Sensor spricht ausschliesslich <code>login.microsoftonline.com</code>
+  und <code>graph.microsoft.com</code> über TCP 443. Kein Domain Controller, kein Tunnel,
+  kein Agent. Ein Kunde ohne eigenen Server wird genauso überwacht wie einer mit.</p>
+</div>
+
+<h2>Teil 1: App-Registrierung im Kundentenant</h2>
+
+<p>Der Sensor braucht dieselbe App-Registrierung wie das Portal: eine Anwendungsberechtigung
+<code>Application.Read.All</code> mit Admin Consent. Das Script erledigt Anlage, Consent und
+Zugangsdatum in einem Durchgang.</p>
+
+<div class="step">
+  <div class="n">1</div>
+  <div class="body">
+    <h3>Script ausführen</h3>
+<pre><code>./New-MonitorAppRegistration.ps1 `
+  -TenantId 8f3a1c22-9b41-4d7e-a512-6ce0f9b27d44 `
+  -TenantKey contoso</code></pre>
+    <p>Ohne weiteren Schalter entsteht ein <strong>Client Secret</strong>. Das ist der
+    Normalfall: es funktioniert in jedem Tenant, und auf der PRTG-Instanz entfällt damit
+    der Zertifikatsimport samt Rechtevergabe, also der Schritt, der am häufigsten
+    schiefgeht.</p>
+
+    <figure>
+      <img src="assets/ps-kunde-anlegen.webp" alt="PowerShell-Fenster mit der Ausgabe des Scripts: App-Registrierung, Service Principal, erteilte Berechtigung Application.Read.All, erzeugtes Client Secret und Konfigurationsblock." loading="lazy">
+      <figcaption>Für den Sensor werden drei Werte gebraucht: Tenant-ID, AppId und das
+      Client Secret. Sie gehen in die Platzhalter 1 bis 3 am Gerät.</figcaption>
+    </figure>
+  </div>
+</div>
+
+<div class="note">
+  <p>Das Secret liegt danach an drei Stellen: im Geräte-Platzhalter und damit in der
+  PRTG-Konfiguration, im Geräte-Dialog für jeden, der das Gerät bearbeiten darf, und in der
+  Kommandozeile des Sensorprozesses, die jeder lokale Prozess mitlesen kann. Wer das nicht
+  will oder in einem Tenant arbeitet, der Client Secrets verbietet, nimmt den Zertifikatsweg
+  unten: dort steht in den Parametern nur der Fingerabdruck, und der ist kein Geheimnis.</p>
+</div>
+
+<details>
+  <summary><strong>Sonderfall: Zertifikat statt Secret</strong></summary>
+  <p>Nötig, wenn eine App Management Policy im Kundentenant Client Secrets verbietet oder
+  auf wenige Monate begrenzt. Das Script bekommt dann <code>-CreateCertificate</code>, und
+  auf der PRTG-Instanz kommt Arbeit dazu: der Sensor liest den privaten Schlüssel aus dem
+  Zertifikatsspeicher, nicht aus einer Datei.</p>
+<pre><code>openssl pkcs12 -export -inkey contoso.key -in contoso.crt -out contoso.pfx
+
+Import-PfxCertificate -FilePath .\contoso.pfx `
+  -CertStoreLocation Cert:\LocalMachine\My</code></pre>
+  <p>Danach in <code>certlm.msc</code> das Zertifikat suchen, Rechtsklick, <em>Alle Aufgaben</em>,
+  <em>Private Schlüssel verwalten</em>, und dem Dienstkonto von PRTG Leserecht geben.
+  Ohne diesen Schritt findet der Sensor das Zertifikat, kann es aber nicht benutzen.
+  In den Sensorparametern steht dann <code>-CertificateThumbprint</code> statt
+  <code>-ClientSecret</code>, und Platzhalter 3 bleibt leer.</p>
+</details>
+
+<h2>Teil 2: Script auf der Instanz ablegen</h2>
+
+<div class="step">
+  <div class="n">1</div>
+  <div class="body">
+    <h3>Datei kopieren</h3>
+    <p><code>prtg/Get-EntraSecretExpiry.ps1</code> aus dem Repository nach:</p>
+<pre><code>C:\Program Files (x86)\PRTG Network Monitor\Custom Sensors\EXEXML\</code></pre>
+    <p>Kam die Datei über einen Browser, muss sie entsperrt werden:
+    <code>Unblock-File .\Get-EntraSecretExpiry.ps1</code></p>
+  </div>
+</div>
+
+<div class="step">
+  <div class="n">2</div>
+  <div class="body">
+    <h3>Execution Policy der 32-Bit-PowerShell setzen</h3>
+    <div class="warn">
+      <p><strong>Das ist der Schritt, den alle vergessen.</strong> Der Probe-Dienst ist auch auf
+      dem Core Server ein 32-Bit-Prozess und startet die 32-Bit-PowerShell. Deren Policy ist
+      von der 64-Bit-Policy unabhängig und auf Clients standardmässig <code>Restricted</code>.</p>
+    </div>
+<pre><code># als Administrator in
+# C:\Windows\SysWOW64\WindowsPowerShell\v1.0\powershell.exe
+Set-ExecutionPolicy -Scope LocalMachine RemoteSigned</code></pre>
+    <p>Prüfen lässt sich das so:</p>
+<pre><code>&amp; "$env:WINDIR\SysWOW64\WindowsPowerShell\v1.0\powershell.exe" `
+  -Command "Get-ExecutionPolicy -Scope LocalMachine"</code></pre>
+    <p>Fehlt der Schritt, schreibt PowerShell einen Klartextfehler nach stdout. PRTG meldet
+    dann <strong>PE233</strong> plus <strong>PE231</strong>, nicht etwa ein fehlendes Script.</p>
+  </div>
+</div>
+
+<div class="step">
+  <div class="n">3</div>
+  <div class="body">
+    <h3>Testlauf von Hand</h3>
+    <p>Vor dem Anlegen des Sensors einmal direkt aufrufen. Die Ausgabe ist genau das XML,
+    das PRTG später bekommt.</p>
+<pre><code>cd 'C:\Program Files (x86)\PRTG Network Monitor\Custom Sensors\EXEXML'
+.\Get-EntraSecretExpiry.ps1 -TenantId &lt;tenant&gt; -ClientId &lt;client&gt; `
+  -ClientSecret &lt;secret&gt;</code></pre>
+    <figure>
+      <img src="assets/ps-prtg-testlauf.webp" alt="PowerShell-Fenster mit dem XML des Sensors: Kanäle für minimale Restlaufzeit, kritische Credentials und eine einzelne Anwendung, plus Meldungstext." loading="lazy">
+      <figcaption>Ein erfolgreicher Lauf. Drei feste Kanäle plus einer pro Anwendung und
+      Credential-Typ.</figcaption>
+    </figure>
+  </div>
+</div>
+
+<h2>Teil 3: Gerät und Sensor in PRTG</h2>
+
+<p>Ein Gerät pro Kundentenant an der lokalen Probe, als Host <code>graph.microsoft.com</code>,
+ohne Ping-Sensor und ohne Auto-Discovery.</p>
+
+<h3>Zugangsdaten am Gerät</h3>
+
+<p>In den Geräteeinstellungen die Sektion <em>Credentials for Script Sensors</em> füllen.
+Nicht <em>Credentials for Microsoft 365</em>, die ist den eingebauten Sensoren vorbehalten.</p>
+
+<div class="tablewrap">
+<table>
+  <tr><th>Platzhalter</th><th>Beschreibung</th><th>Wert</th></tr>
+  <tr><td>Placeholder 1</td><td>Entra Tenant ID</td><td>Verzeichnis-ID</td></tr>
+  <tr><td>Placeholder 2</td><td>Entra Client ID</td><td>Anwendungs-ID (AppId)</td></tr>
+  <tr><td>Placeholder 3</td><td>Entra Client Secret</td><td>Wert aus dem Script</td></tr>
+</table>
+</div>
+
+<h3>Sensor anlegen</h3>
+
+<p>Der Sensor heisst nicht wie das Script. Im Dialog <em>Add Sensor</em> den Filter
+<em>Monitor What?</em> auf <em>Custom Sensors</em> setzen und
+<strong>EXE/Script Advanced</strong> suchen. Erst im zweiten Schritt erscheint das Script in
+der Auswahlliste <em>EXE/Script</em>.</p>
+
+<div class="tablewrap">
+<table>
+  <tr><th>Einstellung</th><th>Wert</th></tr>
+  <tr><td>Sensor Name</td><td><code>Entra Secret Expiry</code></td></tr>
+  <tr><td>EXE/Script</td><td><code>Get-EntraSecretExpiry.ps1</code></td></tr>
+  <tr><td>Parameters</td><td><code>-TenantId "%scriptplaceholder1" -ClientId "%scriptplaceholder2" -ClientSecret "%scriptplaceholder3"</code></td></tr>
+  <tr><td>Environment</td><td><code>Default</code></td></tr>
+  <tr><td>Security Context</td><td>Use security context of probe service</td></tr>
+  <tr><td>Mutex Name</td><td><code>entra-secret-monitor</code></td></tr>
+  <tr><td>Timeout</td><td>120 Sekunden</td></tr>
+  <tr><td>Result Handling</td><td>Store result in case of error</td></tr>
+  <tr><td>Primary Channel</td><td><code>Minimale Restlaufzeit</code></td></tr>
+  <tr><td>Scanning Interval</td><td>Vererbung aus, <strong>6 Stunden</strong></td></tr>
+</table>
+</div>
+
+<div class="warn">
+  <p><strong>Das Intervall bitte wirklich ändern.</strong> Die Vorgabe von 60 Sekunden sind
+  1440 Graph-Abfragen pro Tag und Tenant, für eine Zahl, die sich einmal täglich um eins
+  ändert. Der Mutex sorgt zusätzlich dafür, dass die Kundensensoren nacheinander laufen
+  statt gleichzeitig.</p>
+</div>
+
+<h3>Wenn ein Zertifikat verwendet wird</h3>
+
+<p>Dann tritt der Fingerabdruck an die Stelle von Placeholder 3, der leer bleibt:</p>
+<pre><code>-TenantId "%scriptplaceholder1" -ClientId "%scriptplaceholder2" -CertificateThumbprint "A1B2C3..."</code></pre>
+
+<h2>Kanäle</h2>
+
+<div class="tablewrap">
+<table>
+  <tr><th>Kanal</th><th>Einheit</th><th>Grenzwerte</th></tr>
+  <tr><td>Minimale Restlaufzeit</td><td>Tage</td><td>gelb unter <code>WarnDays</code>, rot unter <code>ErrorDays</code></td></tr>
+  <tr><td>Kritisch unter Warngrenze</td><td>Anzahl</td><td>gelb ab 1</td></tr>
+  <tr><td>Abgelaufen</td><td>Anzahl</td><td>rot ab 1</td></tr>
+  <tr><td><code>&lt;App&gt; (Secret)</code> bzw. <code>(Zertifikat)</code></td><td>Tage</td><td>wie oben</td></tr>
+</table>
+</div>
+
+<p>Namen, Einheiten und Grenzwerte sind identisch mit der XML-Ausgabe des Containers.
+Ein bestehender Sensor kann deshalb von der einen auf die andere Quelle wechseln und
+behält seine Historie.</p>
+
+<h2>Fehlerbilder</h2>
+
+<p>Fehler kommen als <code>&lt;error&gt;1&lt;/error&gt;</code> mit Klartext zurück, der Exit
+Code bleibt 0. Der AADSTS-Code von Entra steht in der Meldung, damit die Ursache direkt im
+Sensor sichtbar ist.</p>
+
+<figure>
+  <img src="assets/ps-prtg-fehler.webp" alt="PowerShell-Fenster mit zwei Fehlerausgaben: ein nicht gefundenes Zertifikat in Rot und die Diagnosemeldung zu fehlenden prtg-Umgebungsvariablen in Gelb." loading="lazy">
+  <figcaption>Links ein falscher Fingerabdruck, rechts die Diagnose mit
+  <code>-ShowEnvironmentNames</code>. Werte der Platzhalter werden dabei nie ausgegeben.</figcaption>
+</figure>
+
+<div class="tablewrap">
+<table>
+  <tr><th>Meldung</th><th>Ursache</th></tr>
+  <tr><td><code>AADSTS90002</code> Tenant not found</td><td>Tenant-ID falsch</td></tr>
+  <tr><td><code>AADSTS700016</code> Application not found</td><td>Client-ID falsch oder App im falschen Tenant</td></tr>
+  <tr><td><code>AADSTS7000215</code> Invalid client secret</td><td>Secret falsch oder abgelaufen</td></tr>
+  <tr><td><code>AADSTS700027</code> client assertion</td><td>Zertifikat nicht in der App-Registrierung hinterlegt</td></tr>
+  <tr><td>HTTP 403 auf <code>/applications</code></td><td><code>Application.Read.All</code> fehlt oder kein Admin Consent</td></tr>
+  <tr><td><code>Zertifikat ... nicht gefunden</code></td><td>falscher Store, oder PRTG-Dienstkonto hat kein Leserecht auf den privaten Schlüssel</td></tr>
+  <tr><td><code>HTTP 0</code> auf <code>.../token</code></td><td>ausgehend 443 fehlt oder Proxy nicht gesetzt (<code>-Proxy</code>)</td></tr>
+  <tr><td><code>Keine Tenant ID</code></td><td>Platzhalter leer, mit <code>-ShowEnvironmentNames</code> prüfen</td></tr>
+  <tr><td><strong>PE233</strong> und <strong>PE231</strong></td><td>Execution Policy der 32-Bit-PowerShell fehlt</td></tr>
+  <tr><td>Script fehlt in der Auswahlliste</td><td>falsche Probe-Maschine, oder Probe-Dienst noch nicht neu gestartet</td></tr>
+</table>
+</div>
+
+<p>Die Rohausgabe eines Laufs landet bei <em>Store result</em> unter
+<code>C:\ProgramData\Paessler\PRTG Network Monitor\Logs\sensors</code>.</p>
+
+<h2>Weiter</h2>
+
+<div class="next">
+  <a href="anleitung-kunde.html">
+    <strong>Kunde im Portal einrichten</strong>
+    <span>Wenn statt Sensoren das Portal die Tenants hält</span>
+  </a>
+  <a href="anleitung-api.html">
+    <strong>API benutzen</strong>
+    <span>Sensor-URLs und Token automatisiert abholen</span>
+  </a>
+</div>
+
+</main>
+
+<footer>
+  <div class="wrap">
+    <span>MIT licensed &middot; built by <a href="https://github.com/benjaminmue">benjaminmue</a></span>
+    <span><a href="https://github.com/benjaminmue/entra-secret-monitor/issues">Issues</a> &middot; <a href="https://github.com/benjaminmue/entra-secret-monitor">Source</a></span>
+  </div>
+</footer>
+
+</body>
+</html>
