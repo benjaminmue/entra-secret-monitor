@@ -37,7 +37,7 @@
     <h1>Kunde einrichten</h1>
     <p class="lede">
       Ein neuer Kundentenant ist in <strong>zehn Minuten</strong> überwacht. Das Script legt die
-      App-Registrierung an, erteilt die eine nötige Berechtigung und erzeugt das Zertifikat.
+      App-Registrierung an, erteilt die eine nötige Berechtigung und erzeugt das Client Secret.
       Danach wird der Kunde im Portal erfasst.
     </p>
   </div>
@@ -93,10 +93,17 @@
     kleingeschrieben sein.</p>
 <pre><code>./New-MonitorAppRegistration.ps1 `
   -TenantId 8f3a1c22-9b41-4d7e-a512-6ce0f9b27d44 `
-  -TenantKey contoso `
-  -CreateCertificate</code></pre>
-    <p>Es öffnet sich die Anmeldung am Kundentenant. Über SSH oder in einem Terminal ohne
-    Browser hilft <code>-UseDeviceCode</code>.</p>
+  -TenantKey contoso</code></pre>
+    <p>Ohne weiteren Schalter legt das Script ein <strong>Client Secret</strong> mit 24 Monaten
+    Laufzeit an. Das ist der Normalfall und funktioniert in jedem Tenant. Es öffnet sich die
+    Anmeldung am Kundentenant; über SSH oder in einem Terminal ohne Browser hilft
+    <code>-UseDeviceCode</code>.</p>
+    <div class="note">
+      <p>Braucht der Tenant ein Zertifikat, weil eine App Management Policy Client Secrets
+      verbietet oder kürzer begrenzt, kommt <code>-CreateCertificate</code> dazu. Das Script
+      schreibt dann <code>contoso.crt</code> und <code>contoso.key</code> ins
+      Arbeitsverzeichnis, und im Portal wird statt des Secrets deren Inhalt hinterlegt.</p>
+    </div>
 
     <figure>
       <img src="assets/ps-kunde-anlegen.webp" alt="PowerShell-Fenster mit der Ausgabe des Scripts New-MonitorAppRegistration.ps1: App-Registrierung, Service Principal, erteilte Berechtigung, erzeugtes Zertifikat und der Konfigurationsblock." loading="lazy">
@@ -110,15 +117,15 @@
   <div class="n">3</div>
   <div class="body">
     <h3>Notieren, was gebraucht wird</h3>
-    <p>Aus der Ausgabe werden vier Werte übernommen. Die beiden PEM-Dateien liegen im
-    aktuellen Verzeichnis.</p>
+    <p>Aus der Ausgabe werden drei Werte übernommen. Das Secret erscheint genau einmal,
+    direkt nach dem Anlegen.</p>
     <div class="tablewrap">
     <table>
       <tr><th>Wert</th><th>Woher</th><th>Wofür</th></tr>
       <tr><td>Tenant-ID</td><td>Parameter <code>-TenantId</code></td><td>Feld im Portal</td></tr>
       <tr><td>AppId</td><td>Abschnitt <em>App registration</em></td><td>Client-ID im Portal</td></tr>
-      <tr><td><code>contoso.crt</code></td><td>Datei im Arbeitsverzeichnis</td><td>Zertifikat (PEM)</td></tr>
-      <tr><td><code>contoso.key</code></td><td>Datei im Arbeitsverzeichnis</td><td>Privater Schlüssel (PEM)</td></tr>
+      <tr><td>Client Secret</td><td>Abschnitt <em>Creating client secret</em></td><td>Feld im Portal</td></tr>
+      <tr><td><code>contoso.crt</code>, <code>contoso.key</code></td><td>nur mit <code>-CreateCertificate</code></td><td>statt des Secrets</td></tr>
     </table>
     </div>
   </div>
@@ -144,24 +151,24 @@
       zu wiederholen.</figcaption>
     </figure>
 
-    <p>Bei <em>Authentisierung</em> wird <strong>Zertifikat</strong> gewählt. Das Formular
-    blendet daraufhin das Feld für das Client Secret aus und zeigt nur die beiden
-    PEM-Felder.</p>
+    <p>Bei <em>Authentisierung</em> steht <strong>Client Secret</strong> bereits als Vorgabe.
+    Das Formular zeigt dann nur das Secret-Feld, die beiden PEM-Felder sind ausgeblendet.
+    Hier kommt der Wert aus dem Abschnitt <em>Creating client secret</em> hinein.</p>
 
     <figure>
-      <img src="assets/form-zertifikat.webp" alt="Formular Kunde anlegen mit Auswahl Zertifikat: sichtbar sind die Felder Zertifikat PEM und Privater Schlüssel PEM, das Feld Client Secret ist ausgeblendet." loading="lazy">
+      <img src="assets/form-secret.webp" alt="Formular Kunde anlegen mit der Vorgabe Client Secret: nur das Feld Client Secret ist sichtbar, die beiden PEM-Felder sind ausgeblendet." loading="lazy">
+      <figcaption>Vorgabe Client Secret. Entra kappt die Laufzeit bei 24 Monaten, und genau
+      diesen Ablauf meldet das Portal danach selbst.</figcaption>
+    </figure>
+
+    <p>Nur wenn der Tenant keine Client Secrets zulässt, wird auf <strong>Zertifikat</strong>
+    umgestellt. Dann verschwindet das Secret-Feld und die beiden PEM-Felder erscheinen.</p>
+
+    <figure>
+      <img src="assets/form-zertifikat.webp" alt="Dasselbe Formular mit Auswahl Zertifikat: sichtbar sind die Felder Zertifikat PEM und Privater Schlüssel PEM, das Feld Client Secret ist ausgeblendet." loading="lazy">
       <figcaption>Auswahl Zertifikat. Der Inhalt von <code>contoso.crt</code> kommt in das
       obere Feld, der von <code>contoso.key</code> in das untere, jeweils mit BEGIN- und
       END-Zeile.</figcaption>
-    </figure>
-
-    <p>Wer stattdessen ein Client Secret hinterlegt, wählt <strong>Client Secret</strong>.
-    Dann verschwinden die PEM-Felder und nur das Secret bleibt.</p>
-
-    <figure>
-      <img src="assets/form-secret.webp" alt="Dasselbe Formular mit Auswahl Client Secret: nur das Feld Client Secret ist sichtbar, die beiden PEM-Felder sind ausgeblendet." loading="lazy">
-      <figcaption>Auswahl Client Secret. Entra kappt Secrets bei 24 Monaten, Zertifikate
-      laufen bis zu zehn Jahre.</figcaption>
     </figure>
   </div>
 </div>

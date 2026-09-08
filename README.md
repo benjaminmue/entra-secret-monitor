@@ -103,8 +103,12 @@ interval does not hammer Graph.
 2. **API permissions** -> Microsoft Graph -> *Application permission*
    `Application.Read.All`, then grant admin consent. Nothing else, no
    `Directory.Read.All`.
-3. **Authentication**: certificate is recommended, since a client secret expires
-   after 24 months at most and would take the monitoring down with it.
+3. **Authentication**: a client secret is the normal way. It works in every
+   tenant and on every host, with no certificate store and no private key to
+   place anywhere. Entra caps it at 24 months, and that expiry is exactly what
+   this project reports on, including for its own credential. Use a certificate
+   when the tenant restricts client secrets through an app management policy,
+   or when 24 months is too short for how you operate.
 
 ```bash
 openssl req -x509 -newkey rsa:2048 -nodes -days 1095 \

@@ -134,9 +134,14 @@ class CustomerForm(FlaskForm):
     tenant_id = GuidField("Tenant-ID (Verzeichnis-ID)", validators=[DataRequired()])
     client_id = GuidField("Client-ID (Anwendungs-ID)", validators=[DataRequired()])
 
+    # Client Secret steht zuerst und ist die Vorgabe: es funktioniert in jedem
+    # Tenant und auf jeder Instanz, ohne Zertifikatsspeicher und ohne Rechte
+    # auf einen privaten Schluessel. Das Zertifikat bleibt fuer Tenants, die
+    # Client Secrets per Richtlinie verbieten oder begrenzen.
     auth_type = SelectField("Authentisierung", choices=[
-        (AUTH_CERT, "Zertifikat (empfohlen)"),
-        (AUTH_SECRET, "Client Secret")], validators=[DataRequired()])
+        (AUTH_SECRET, "Client Secret (empfohlen)"),
+        (AUTH_CERT, "Zertifikat")], validators=[DataRequired()],
+        default=AUTH_SECRET)
     client_secret = PasswordField("Client Secret", validators=[Optional(), Length(max=512)])
     cert_pem = TextAreaField("Zertifikat (PEM)", validators=[Optional(), Length(max=20000)])
     key_pem = TextAreaField("Privater Schlüssel (PEM)",

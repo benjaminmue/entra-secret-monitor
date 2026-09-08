@@ -143,7 +143,7 @@ class Customer(Base):
 
     tenant_id: Mapped[str] = mapped_column(String(64), nullable=False)
     client_id: Mapped[str] = mapped_column(String(64), nullable=False)
-    auth_type: Mapped[str] = mapped_column(String(16), default=AUTH_CERT, nullable=False)
+    auth_type: Mapped[str] = mapped_column(String(16), default=AUTH_SECRET, nullable=False)
     client_secret_enc: Mapped[str] = mapped_column(Text, default="")
     cert_pem: Mapped[str] = mapped_column(Text, default="")
     key_pem_enc: Mapped[str] = mapped_column(Text, default="")

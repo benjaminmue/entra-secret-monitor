@@ -133,14 +133,10 @@ def fuelle_daten(app):
             key=eintrag["key"], display_name=eintrag["name"],
             tenant_id="%08d-1111-2222-3333-444444444444" % (platz + 1),
             client_id="%08d-5555-6666-7777-888888888888" % (platz + 1),
-            auth_type="certificate", cert_pem="-----BEGIN CERTIFICATE-----\n"
-                                              "Beispieldaten\n"
-                                              "-----END CERTIFICATE-----\n",
-            key_pem_enc=crypto.encrypt(
-                "Beispieldaten, kein echter Schluessel", schluessel,
-                crypto.aad_for("customer", eintrag["key"], "key_pem_enc")),
-            cert_thumbprint="A1B2C3D4E5F6%02d" % platz,
-            cert_not_after=jetzt + timedelta(days=900),
+            auth_type="secret",
+            client_secret_enc=crypto.encrypt(
+                "Beispieldaten, kein echtes Secret", schluessel,
+                crypto.aad_for("customer", eintrag["key"], "client_secret_enc")),
             warn_days=30, error_days=14, max_channels=45,
             include_sp=False, show_expired=False,
             prtg_token=new_token(), slot_minute=platz * 240, is_active=True,

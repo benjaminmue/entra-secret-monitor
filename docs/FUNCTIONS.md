@@ -190,7 +190,7 @@ nicht eine Ausnahme vom Aufräumen.
 | 34 | `pre_validate(self, form)` | kein Rückgabewert | Reject anything that is not a GUID before the form is used. |
 | 41 | `schluessel_hinweis(wert)` | Wert | Return the specific reason why a customer key is invalid, or None. |
 | 75 | `pre_validate(self, form)` | kein Rückgabewert | Reject an invalid key with the reason that applies to this value. |
-| 161 | `validate(self, extra_validators=None)` | Wert | Enforce that the chosen authentication method is actually filled in. |
+| 166 | `validate(self, extra_validators=None)` | Wert | Enforce that the chosen authentication method is actually filled in. |
 
 ### `portal/models.py`
 
