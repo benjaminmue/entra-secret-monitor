@@ -37,10 +37,10 @@
     <h2>Authentisierung</h2>
     <div class="field">
       {{ form.auth_type.label }}{{ form.auth_type(**{"data-auth-type": "1"}) }}
-      <span class="hint">Das Client Secret ist der Normalfall: es funktioniert in jedem
-        Tenant und braucht keinen Zertifikatsspeicher. Entra kappt es bei 24 Monaten,
-        und genau diesen Ablauf überwacht dieses Portal. Das Zertifikat ist für Tenants
-        gedacht, die Client Secrets per Richtlinie verbieten oder kürzer begrenzen.</span>
+      <span class="hint">Das Client Secret ist der betriebliche Normalfall: es funktioniert
+        in jedem Tenant und braucht keinen Zertifikatsspeicher. Entra kappt es bei
+        24 Monaten. Das Zertifikat ist das stärkere Zugangsdatum und die Wahl für Tenants,
+        die Client Secrets per Richtlinie verbieten oder kürzer begrenzen.</span>
     </div>
     <div class="field" data-auth-only="secret">
       {{ form.client_secret.label }}{{ form.client_secret(autocomplete="new-password") }}

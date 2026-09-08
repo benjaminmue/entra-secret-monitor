@@ -56,7 +56,7 @@
 
 <p>Der Sensor braucht dieselbe App-Registrierung wie das Portal: eine Anwendungsberechtigung
 <code>Application.Read.All</code> mit Admin Consent. Das Script erledigt Anlage, Consent und
-Zertifikat in einem Durchgang.</p>
+Zugangsdatum in einem Durchgang.</p>
 
 <div class="step">
   <div class="n">1</div>
@@ -71,7 +71,7 @@ Zertifikat in einem Durchgang.</p>
     schiefgeht.</p>
 
     <figure>
-      <img src="assets/ps-kunde-anlegen.webp" alt="PowerShell-Fenster mit der Ausgabe des Scripts: App-Registrierung, Service Principal, erteilte Berechtigung Application.Read.All, erzeugtes Zertifikat mit Fingerabdruck und Konfigurationsblock." loading="lazy">
+      <img src="assets/ps-kunde-anlegen.webp" alt="PowerShell-Fenster mit der Ausgabe des Scripts: App-Registrierung, Service Principal, erteilte Berechtigung Application.Read.All, erzeugtes Client Secret und Konfigurationsblock." loading="lazy">
       <figcaption>Für den Sensor werden drei Werte gebraucht: Tenant-ID, AppId und das
       Client Secret. Sie gehen in die Platzhalter 1 bis 3 am Gerät.</figcaption>
     </figure>
@@ -79,10 +79,11 @@ Zertifikat in einem Durchgang.</p>
 </div>
 
 <div class="note">
-  <p>Das Secret landet in den Sensorparametern und damit in der Kommandozeile des
-  Sensorprozesses, die jeder lokale Prozess mitlesen kann. Auf der PRTG-Instanz sind das
-  Administratoren, in den meisten Umgebungen also vertretbar. Wer das nicht will oder in
-  einem Tenant arbeitet, der Client Secrets verbietet, nimmt den Zertifikatsweg unten.</p>
+  <p>Das Secret liegt danach an drei Stellen: im Geräte-Platzhalter und damit in der
+  PRTG-Konfiguration, im Geräte-Dialog für jeden, der das Gerät bearbeiten darf, und in der
+  Kommandozeile des Sensorprozesses, die jeder lokale Prozess mitlesen kann. Wer das nicht
+  will oder in einem Tenant arbeitet, der Client Secrets verbietet, nimmt den Zertifikatsweg
+  unten: dort steht in den Parametern nur der Fingerabdruck, und der ist kein Geheimnis.</p>
 </div>
 
 <details>

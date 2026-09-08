@@ -545,15 +545,76 @@ class CustomerKeyRuleTests(unittest.TestCase):
         seite = self.client.get("/kunden/neu").get_data(as_text=True)
         self.assertIn("Nur Kleinbuchstaben", seite)
 
+    def test_an_edit_without_auth_type_never_destroys_a_certificate(self):
+        # Regression aus der Umstellung auf Secret als Vorgabe: der Default am
+        # Feld griff auch bei einer Absendung ohne auth_type. Zusammen mit einem
+        # mitgesendeten client_secret stellte das einen Zertifikatskunden um und
+        # loeschte cert_pem samt privatem Schluessel unwiederbringlich.
+        from portal.db import Session
+        from portal.models import Customer
+
+        cert, key = make_certificate()
+        self.client.post("/kunden/neu", data={
+            "csrf_token": csrf_token(self.client, "/kunden/neu"),
+            "key": "zertbestand", "display_name": "Zert Bestand",
+            "tenant_id": TENANT_GUID, "client_id": CLIENT_GUID,
+            "auth_type": "certificate", "cert_pem": cert, "key_pem": key,
+            "warn_days": 30, "error_days": 14, "max_channels": 45, "is_active": "y"})
+        kunde = Session.query(Customer).filter(Customer.key == "zertbestand").one()
+        vorher = (kunde.auth_type, len(kunde.cert_pem), len(kunde.key_pem_enc))
+        self.assertEqual("certificate", vorher[0])
+        self.assertGreater(vorher[1], 0)
+
+        pfad = "/kunden/%d/bearbeiten" % kunde.id
+        antwort = self.client.post(pfad, data={
+            "csrf_token": csrf_token(self.client, pfad),
+            "key": "zertbestand", "display_name": "Zert Bestand",
+            "tenant_id": TENANT_GUID, "client_id": CLIENT_GUID,
+            "client_secret": "untergeschobenes-secret",
+            "warn_days": 30, "error_days": 14, "max_channels": 45, "is_active": "y"})
+
+        Session.expire_all()
+        kunde = Session.query(Customer).filter(Customer.key == "zertbestand").one()
+        self.assertEqual(vorher, (kunde.auth_type, len(kunde.cert_pem),
+                                  len(kunde.key_pem_enc)),
+                         "Absendung ohne auth_type hat das Zertifikat veraendert")
+        self.assertIn("Anmeldeart fehlt", antwort.get_data(as_text=True))
+
+    def test_editing_a_certificate_customer_keeps_certificate_preselected(self):
+        # Die neue Vorgabe darf nur fuer neue Kunden gelten. Beim Bearbeiten
+        # zaehlt, was der Kunde hat, sonst kippt ein Speichern ohne Aenderung
+        # die Anmeldeart.
+        from portal.db import Session
+        from portal.models import Customer
+
+        cert, key = make_certificate()
+        self.client.post("/kunden/neu", data={
+            "csrf_token": csrf_token(self.client, "/kunden/neu"),
+            "key": "zertvorwahl", "display_name": "Zert Vorwahl",
+            "tenant_id": TENANT_GUID, "client_id": CLIENT_GUID,
+            "auth_type": "certificate", "cert_pem": cert, "key_pem": key,
+            "warn_days": 30, "error_days": 14, "max_channels": 45, "is_active": "y"})
+        kunde = Session.query(Customer).filter(Customer.key == "zertvorwahl").one()
+        seite = self.client.get("/kunden/%d/bearbeiten" % kunde.id).get_data(as_text=True)
+        self.assertRegex(seite, r'<option[^>]*selected[^>]*value="certificate"'
+                                r'|<option[^>]*value="certificate"[^>]*selected')
+
     def test_client_secret_is_the_offered_default(self):
         # Das Secret funktioniert in jedem Tenant und auf jedem Host. Das
         # Zertifikat bleibt fuer Tenants, die Secrets per Richtlinie
         # einschraenken, ist aber nicht mehr der Vorschlag.
+        # Ueber den Formularzustand statt ueber die Attributreihenfolge des
+        # Renderers: die aendert sich mit der WTForms-Fassung, die Vorgabe nicht.
+        from portal.forms import CustomerForm
+        from portal.models import AUTH_SECRET
+        with self.app.test_request_context("/kunden/neu"):
+            self.assertEqual(AUTH_SECRET, CustomerForm().auth_type.data)
+            self.assertEqual(AUTH_SECRET, CustomerForm().auth_type.choices[0][0])
+
         seite = self.client.get("/kunden/neu").get_data(as_text=True)
-        self.assertIn('selected value="secret"', seite.replace("' ", "'"))
         self.assertIn("Client Secret (empfohlen)", seite)
 
-        from portal.models import AUTH_SECRET, Customer
+        from portal.models import Customer
         self.assertEqual(AUTH_SECRET, Customer.__table__.c.auth_type.default.arg,
                          "die Vorgabe im Modell weicht vom Formular ab")
 

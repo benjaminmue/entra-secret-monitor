@@ -8,8 +8,8 @@ Implementierungen derselben Sache werden.
 
 | Kennzahl | Wert |
 |---|---|
-| Module | 26 |
-| Funktionen | 259 |
+| Module | 30 |
+| Funktionen | 279 |
 | Ohne Docstring | 4 |
 | Namensdubletten | 0 |
 | Strukturdubletten | 0 |
@@ -438,3 +438,43 @@ nicht eine Ausnahme vom Aufräumen.
 | 140 | `reset_password(user_id)` | Wert | Issue a new one time password for an account. |
 | 161 | `reset_totp(user_id)` | Wert | Clear the second factor so the account enrols a new authenticator. |
 | 182 | `delete(user_id)` | Wert | Delete an account, except the last administrator and oneself. |
+
+### `tools/demo_pages.py`
+
+| Zeile | Funktion | Rückgabe | Beschreibung |
+|---|---|---|---|
+| 76 | `zugangsdaten(eintrag, schluessel, jetzt)` | Wert | Build the credential fields for one invented customer. |
+| 108 | `fuelle_daten(app)` | kein Rückgabewert | Insert the invented customers, their credentials and one failed run. |
+| 168 | `schreibe(ziel, name, inhalt)` | kein Rückgabewert | Write one rendered page with its asset links pointing next to the file. |
+| 182 | `sammle_api_antworten(app, ziel)` | kein Rückgabewert | Call every documented endpoint once and write the real answers as JSON. |
+| 285 | `main()` | kein Rückgabewert | Render every documented page into the target directory. |
+
+### `tools/inventory.py`
+
+| Zeile | Funktion | Rückgabe | Beschreibung |
+|---|---|---|---|
+| 87 | `iter_source_files()` | Generator | Yield every Python file of the project, sorted, tests excluded. |
+| 95 | `signature_of(node)` | Wert | Render a function signature the way it is written in the source. |
+| 119 | `returns_of(node)` | Wert | Describe what the function hands back. |
+| 135 | `summary_of(node)` | Wert | First sentence of the docstring, or a marker when there is none. |
+| 144 | `structure_hash(node)` | Wert | Hash the shape of a body with all identifiers and constants removed. |
+| 159 | `collect()` | Wert | Return one record per function found in the project. |
+| 182 | `duplicate_names(functions)` | Wert | Names defined in more than one module, minus the accepted ones. |
+| 195 | `duplicate_structures(functions)` | Wert | Bodies of a meaningful size that share their shape. |
+| 212 | `render(functions)` | Wert | Build the Markdown document. |
+| 292 | `main(argv=None)` | Wert | Write the inventory, or verify it is current and free of new duplicates. |
+
+### `tools/portal_sandbox.py`
+
+| Zeile | Funktion | Rückgabe | Beschreibung |
+|---|---|---|---|
+| 32 | `build_app(bootstrap_password=BOOTSTRAP_PASSWORD, **zusatz)` | Wert | Create a portal app on a throwaway SQLite file with the scheduler off. |
+| 62 | `csrf_token(client, path)` | Wert | Read the CSRF token from a rendered form. |
+| 76 | `sign_in_admin(client, bootstrap_password=BOOTSTRAP_PASSWORD, new_password=NEW_PASSWORD)` | kein Rückgabewert | Walk the bootstrap account through TOTP enrollment and password change. |
+
+### `tools/terminal_shot.py`
+
+| Zeile | Funktion | Rückgabe | Beschreibung |
+|---|---|---|---|
+| 89 | `zeile_zu_html(zeile)` | Wert | Turn one prefixed source line into a span of the matching colour. |
+| 107 | `main()` | Wert | Render the input file into a terminal looking HTML page. |
