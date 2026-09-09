@@ -19,6 +19,7 @@ Sorte Abweichung, die niemandem auffaellt.
 import re
 from datetime import timezone
 
+from portal.models import AUTH_CERT
 from portal.scanner import data_age_hours
 
 # Fehlerkennungen von Entra ID, nach denen im Rohtext gesucht wird. Microsoft
@@ -221,12 +222,14 @@ def befunde(kunde, credentials, stale_hours):
             "Kunde aktivieren, wenn wieder geprüft werden soll."))
         return gefunden
 
-    if not (kunde.client_secret_enc or kunde.key_pem_enc):
+    if not kunde.has_credential:
         gefunden.append(_befund(
             "no_credential", "error",
-            "Für diesen Kunden ist kein Zugangsdatum hinterlegt, es kann nicht "
-            "geprüft werden.",
-            "Client Secret oder Zertifikatspaar hinterlegen."))
+            "Für diesen Kunden ist kein Zugangsdatum der gewählten Anmeldeart "
+            "hinterlegt, es kann nicht geprüft werden.",
+            "%s hinterlegen." % ("Zertifikat und privaten Schlüssel"
+                                 if kunde.auth_type == AUTH_CERT
+                                 else "Client Secret")))
 
     if kunde.last_check_at is None or kunde.last_status == "pending":
         gefunden.append(_befund(

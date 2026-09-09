@@ -253,7 +253,7 @@ einen <code>code</code> zum Auswerten und einen Satz Klartext zum Anzeigen.</p>
   <tr><td><code>credential_expired</code></td><td>bereits abgelaufen</td></tr>
   <tr><td><code>scan_failed</code></td><td>letzter Lauf ist gescheitert, Details in <code>scan.error</code></td></tr>
   <tr><td><code>never_checked</code></td><td>noch nie erfolgreich geprüft</td></tr>
-  <tr><td><code>no_credential</code></td><td>kein Secret und kein Zertifikat hinterlegt</td></tr>
+  <tr><td><code>no_credential</code></td><td>kein Zugangsdatum der gewählten Anmeldeart hinterlegt</td></tr>
   <tr><td><code>inactive</code></td><td>Überwachung für diesen Kunden abgeschaltet</td></tr>
 </table>
 </div>
@@ -331,6 +331,26 @@ danach nichts mehr:</p>
 <p><code>fields</code> ist nach Feldnamen aufgeschlüsselt und lässt sich direkt an ein
 Formular zurückgeben. Die Meldung ist wörtlich dieselbe wie in der Oberfläche, damit
 Techniker und Administrator dieselbe Anweisung lesen.</p>
+
+<h3>Zugangsdatum passt nicht zur Anmeldeart, 422</h3>
+
+<p>Wichtig für ein Rotations-Script: ein <code>client_secret</code> für einen Kunden,
+der auf Zertifikat steht, wird abgelehnt statt stillschweigend verworfen.</p>
+
+<pre><code>{
+  "error": {
+    "code": "validation_failed",
+    "message": "Eingaben unvollständig.",
+    "fields": {
+      "client_secret": "Gehört nicht zu auth_type 'certificate'. Feld weglassen oder leer senden."
+    }
+  }
+}</code></pre>
+
+<p>Ein echter Wechsel der Anmeldeart geht weiterhin. Dabei muss <code>auth_type</code>
+mitkommen und das Feld der alten Methode weggelassen oder leer gesendet werden:</p>
+
+<pre><code>curl -X PATCH https://entra-portal.example.com/api/v1/customers/contoso   -H "Authorization: Bearer $TOKEN"   -H "Content-Type: application/json"   -d '{"auth_type": "secret", "client_secret": "neuer-wert"}'</code></pre>
 
 <h3>Unbekannter Kunde, 404</h3>
 

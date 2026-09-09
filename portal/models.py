@@ -35,6 +35,17 @@ ROLE_LABELS = {
 AUTH_SECRET = "secret"
 AUTH_CERT = "certificate"
 
+# Welche Eingabefelder zu welcher Anmeldeart gehoeren, und was die jeweils
+# andere ist. Steht hier neben den Konstanten, weil drei Stellen dieselbe
+# Kenntnis brauchen: die Pruefung und die Uebernahme in der Schnittstelle und
+# die Uebernahme in der Oberflaeche. Als drei Kopien hat genau das schon dazu
+# gefuehrt, dass eine Stelle nachgezogen wurde und die andere nicht.
+CREDENTIAL_FELDER = {
+    AUTH_SECRET: ("client_secret",),
+    AUTH_CERT: ("cert_pem", "key_pem"),
+}
+GEGENSTUECK = {AUTH_SECRET: AUTH_CERT, AUTH_CERT: AUTH_SECRET}
+
 TRIGGER_SCHEDULE = "schedule"
 TRIGGER_MANUAL = "manual"
 TRIGGER_STARTUP = "startup"
@@ -197,6 +208,25 @@ class Customer(Base):
     def auth_label(self):
         """German label of the configured authentication method."""
         return "Zertifikat" if self.auth_type == AUTH_CERT else "Client Secret"
+
+    @property
+    def has_credential(self):
+        """
+        True when material for the *chosen* method is stored.
+
+        Bewusst an auth_type gebunden, dieselbe Verzweigung wie im Scanner. Eine
+        methodenblinde Pruefung auf "irgendein Feld ist gefuellt" meldete einen
+        Kunden als bereit, dessen Lauf dann an der leeren Haelfte scheiterte,
+        etwa nach einem Import oder einer Aenderung von Hand.
+
+        Geprueft wird, ob etwas hinterlegt ist, nicht ob es sich lesen laesst:
+        der Schluessel zum Entschluesseln liegt in der Umgebung und nicht am
+        Datensatz. Ein Datensatz, der mit einem anderen PORTAL_ENCRYPTION_KEY
+        geschrieben wurde, meldet hier True und scheitert trotzdem im Lauf.
+        """
+        if self.auth_type == AUTH_CERT:
+            return bool(self.cert_pem and self.key_pem_enc)
+        return bool(self.client_secret_enc)
 
 
 class CheckRun(Base):
