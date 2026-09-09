@@ -225,6 +225,12 @@ die Antwort trägt das Ergebnis.
 Statt eines Secrets nimmt `auth_type: "certificate"` ein Paar aus `cert_pem` und
 `key_pem` entgegen. Der private Schlüssel muss unverschlüsselt sein.
 
+Felder der jeweils anderen Anmeldeart werden mit 422 abgelehnt statt verworfen: ein
+`client_secret` für einen Kunden mit `auth_type: "certificate"` ist ein Fehler, kein
+stiller Verlust. Leer oder weggelassen sind sie immer zulässig, ein Client darf also
+alle Felder senden. Beim Wechsel der Anmeldeart gehört `auth_type` in denselben
+Aufruf, und das Feld der alten Methode bleibt leer.
+
 ### Befunde statt Rohtext
 
 Ein anbindendes System will nicht wissen, dass Microsoft `AADSTS7000215` gesagt hat, sondern
@@ -261,7 +267,7 @@ nur nicht mehr das Einzige, was herauskommt.
 | `credential_warning` | unter der Warngrenze dieses Kunden |
 | `data_stale` | Die Zahlen sind älter als `PORTAL_STALE_HOURS` |
 | `never_checked` | Noch kein erfolgreicher Lauf |
-| `no_credential` | Kein Secret und kein Zertifikat hinterlegt, es kann nicht geprüft werden |
+| `no_credential` | Kein Zugangsdatum der gewählten Anmeldeart hinterlegt, es kann nicht geprüft werden |
 | `own_certificate_expired` / `_expiring` | Das Zertifikat, mit dem sich das Portal anmeldet, läuft ab. Der Kunde wird dabei nicht rot, seine eigenen Zugangsdaten sind ja in Ordnung, aber die Überwachung endet |
 | `inactive` | Überwachung abgeschaltet. Dann steht dieser Befund allein, alte Zahlen wären bedeutungslos |
 

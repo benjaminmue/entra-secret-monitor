@@ -130,6 +130,25 @@ API-Schlüssel bewusst ein Schlüssel zur Instanz, nicht zu einem Kunden.
   Datei allein gibt keine Zugangsdaten her, weil der Schlüssel in der Umgebung
   steht und nicht in der Datenbank, aber die PRTG-Token stehen im Klartext.
 
+## Eine unabhängige Prüfung vor dem Merge
+
+Zusätzlich zur Liste oben geht jede Änderung an Code durch ein Review eines
+zweiten Modells, **bevor** der Pull Request gemergt wird, nicht danach.
+
+Der Grund steht in der Historie dieses Projekts. Ein Review nach dem Merge fand
+in einem Fall eine Eingabeprüfung, die einen Kunden anlegte, den die eigene
+Schnittstelle danach nicht mehr adressieren konnte, und in einem zweiten einen
+Formulardefault, der bei einer Absendung ohne das Feld ein hinterlegtes
+Zertifikat samt privatem Schlüssel löschte. Beides stand zwischenzeitlich auf
+`main`. Die Testsuite war in beiden Fällen grün, weil sie prüft, was jemand zu
+prüfen gedacht hat.
+
+Was das Review bekommt: den Diff, den Zweck der Änderung und die Stellen, an
+denen ein Fehler teuer wäre. Was es zurückgeben muss: Befunde mit Datei und
+Zeile, oder ausdrücklich nichts. Ein Befund wird nachgestellt, bevor er
+behoben wird, und ein Befund, der sich nicht nachstellen lässt, wird nicht
+behoben, sondern verworfen.
+
 ## Wie eine Änderung auf main kommt
 
 `main` ist seit dem 06.09.2026 durch ein Ruleset geschützt. Ein direkter Push

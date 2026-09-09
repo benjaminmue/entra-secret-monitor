@@ -23,7 +23,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 sys.path.insert(0, os.path.join(ROOT, "app"))
 
-from tests.support import needs_portal                                   # noqa: E402
+from tests.support import make_certificate, needs_portal                                   # noqa: E402
 
 TENANT = "00000000-0000-0000-0000-0000000000aa"
 CLIENT = "00000000-0000-0000-0000-0000000000bb"
@@ -301,6 +301,99 @@ class ApiTests(unittest.TestCase):
         status, koerper = self.ruf("GET", "/api/v1/customers/unveraenderlich", "lesend")
         self.assertEqual(200, status, koerper)
         self.assertEqual("unveraenderlich", koerper["key"])
+
+    def test_a_credential_of_the_other_method_is_rejected_not_dropped(self):
+        # Vorher nahm die Schnittstelle das mit 200 entgegen und legte es
+        # nirgends ab. Ein Rotations-Script meldete Erfolg, ohne dass etwas
+        # rotiert war.
+        zert, schluessel = make_certificate()
+        self.lege_an(key="zertkunde", auth_type="certificate",
+                     cert_pem=zert, key_pem=schluessel, client_secret=None)
+
+        status, koerper = self.ruf("PATCH", "/api/v1/customers/zertkunde",
+                                   koerper={"client_secret": "wird-nirgends-abgelegt"})
+        self.assertEqual(422, status, koerper)
+        self.assertIn("client_secret", koerper["error"]["fields"])
+
+        self.lege_an(key="secretkunde")
+        status, koerper = self.ruf("PATCH", "/api/v1/customers/secretkunde",
+                                   koerper={"cert_pem": zert, "key_pem": schluessel})
+        self.assertEqual(422, status, koerper)
+        self.assertIn("cert_pem", koerper["error"]["fields"])
+
+    def test_empty_credential_fields_stay_allowed(self):
+        # Gegentest zur Ablehnung: ein Client, der immer alle Felder sendet und
+        # die ungenutzten leer laesst, darf nicht kaputtgehen. Ohne diesen Test
+        # faellt eine zu strenge Fassung der Pruefung nicht auf.
+        self.lege_an(key="leerfelder")
+        for koerper in ({"warn_days": 40, "cert_pem": "", "key_pem": ""},
+                        {"warn_days": 41, "cert_pem": None, "key_pem": None},
+                        {"warn_days": 42, "cert_pem": "   "}):
+            with self.subTest(koerper=koerper):
+                status, antwort = self.ruf("PATCH", "/api/v1/customers/leerfelder",
+                                           koerper=koerper)
+                self.assertEqual(200, status, antwort)
+
+    def test_a_foreign_credential_is_rejected_on_create_too(self):
+        zert, schluessel = make_certificate()
+        status, koerper = self.ruf("POST", "/api/v1/customers", koerper=anlage(
+            key="beimanlegen", auth_type="certificate", cert_pem=zert,
+            key_pem=schluessel, client_secret="gehoert-hier-nicht-hin"))
+        self.assertEqual(422, status, koerper)
+        self.assertEqual({"client_secret"}, set(koerper["error"]["fields"]))
+
+    def test_a_foreign_field_does_not_hide_a_missing_one(self):
+        # Der Early Return verdeckte die Pflichtfeldpruefung: der Aufrufer
+        # erfuhr erst im zweiten Anlauf, dass ihm auch die Haelfte des Paares
+        # fehlt. Jetzt kommen beide Fehler zusammen.
+        zert, _ = make_certificate()
+        status, koerper = self.ruf("POST", "/api/v1/customers", koerper=anlage(
+            key="beidesfalsch", auth_type="certificate", cert_pem=zert,
+            client_secret="gehoert-hier-nicht-hin"))
+        self.assertEqual(422, status, koerper)
+        self.assertEqual({"client_secret", "key_pem"}, set(koerper["error"]["fields"]))
+
+    def test_the_rejection_message_does_not_give_a_useless_hint(self):
+        # Beim echten Wechsel wurde geraten, auth_type mitzusenden, obwohl es
+        # mitgesendet war.
+        zert, schluessel = make_certificate()
+        self.lege_an(key="wechselmitrest")
+        status, koerper = self.ruf("PATCH", "/api/v1/customers/wechselmitrest",
+                                   koerper={"auth_type": "certificate",
+                                            "cert_pem": zert, "key_pem": schluessel,
+                                            "client_secret": "altwert"})
+        self.assertEqual(422, status, koerper)
+        meldung = koerper["error"]["fields"]["client_secret"]
+        self.assertNotIn("auth_type mitsenden", meldung)
+        self.assertIn("weglassen oder leer senden", meldung)
+
+    def test_switching_method_together_with_the_credential_still_works(self):
+        # Die neue Pruefung darf den echten Wechsel nicht blockieren.
+        self.lege_an(key="wechselkunde")
+        zert, schluessel = make_certificate()
+        status, koerper = self.ruf("PATCH", "/api/v1/customers/wechselkunde",
+                                   koerper={"auth_type": "certificate",
+                                            "cert_pem": zert, "key_pem": schluessel})
+        self.assertEqual(200, status, koerper)
+        self.assertEqual("certificate", koerper["auth_type"])
+        self.assertTrue(koerper["has_credential"])
+
+    def test_has_credential_follows_the_chosen_method(self):
+        # Methodenblind gepruefte Felder meldeten einen Kunden als bereit,
+        # dessen Lauf dann an der leeren Haelfte scheiterte.
+        from portal.db import Session
+        from portal.models import Customer
+
+        self.lege_an(key="halbkunde")
+        kunde = Session.query(Customer).filter(Customer.key == "halbkunde").one()
+        kunde.auth_type = "certificate"          # von Hand, wie nach einem Import
+        Session.commit()
+
+        status, koerper = self.ruf("GET", "/api/v1/customers/halbkunde", "lesend")
+        self.assertEqual(200, status, koerper)
+        self.assertFalse(koerper["has_credential"],
+                         "Secret zaehlt als Zugangsdatum eines Zertifikatskunden")
+        self.assertIn("no_credential", [p["code"] for p in koerper["problems"]])
 
     def test_a_created_customer_reports_that_a_credential_is_stored(self):
         """Statt des Secrets kommt die Auskunft, dass eines hinterlegt ist."""

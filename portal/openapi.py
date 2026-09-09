@@ -137,9 +137,17 @@ CUSTOMER_INPUT_SCHEMA = {
                       "default": "secret"},
         "client_secret": {"type": "string",
                           "description": "Pflicht bei auth_type 'secret'. Wird "
-                                         "verschlüsselt abgelegt und nie zurückgegeben."},
-        "cert_pem": {"type": "string", "description": "Pflicht bei auth_type 'certificate'."},
-        "key_pem": {"type": "string", "description": "Pflicht bei auth_type 'certificate'."},
+                                         "verschlüsselt abgelegt und nie zurückgegeben. "
+                                         "Bei auth_type 'certificate' weglassen oder "
+                                         "leer senden, ein Wert führt zu 422."},
+        "cert_pem": {"type": "string",
+                     "description": "Pflicht bei auth_type 'certificate'. Bei "
+                                    "auth_type 'secret' weglassen oder leer senden, "
+                                    "ein Wert führt zu 422."},
+        "key_pem": {"type": "string",
+                    "description": "Pflicht bei auth_type 'certificate'. Bei "
+                                   "auth_type 'secret' weglassen oder leer senden, "
+                                   "ein Wert führt zu 422."},
         "warn_days": {"type": "integer", "minimum": 1, "maximum": 3650},
         "error_days": {"type": "integer", "minimum": 1, "maximum": 3650,
                        "description": "Muss kleiner oder gleich warn_days sein."},

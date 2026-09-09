@@ -48,7 +48,13 @@ def _apply_credentials(form, customer, cfg, is_new):
             customer.cert_thumbprint = thumbprint
             customer.cert_not_after = not_after
             customer.client_secret_enc = ""
-        elif is_new or not customer.cert_pem:
+        # Beide Haelften pruefen, nicht nur das Zertifikat. Ein Datensatz mit
+        # cert_pem und leerem key_pem_enc liess sich sonst hier speichern und
+        # meldete ueber die Schnittstelle has_credential=false: zwei Wege, die
+        # sich widersprechen. Bewusst nicht ueber customer.has_credential, weil
+        # customer.auth_type erst am Ende dieser Funktion zugewiesen wird und
+        # die Eigenschaft hier noch die alte Anmeldeart laese.
+        elif is_new or not (customer.cert_pem and customer.key_pem_enc):
             raise ValueError("Für die Zertifikatsanmeldung fehlen Zertifikat und Schlüssel")
     else:
         secret = (form.client_secret.data or "").strip()

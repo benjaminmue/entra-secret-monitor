@@ -27,7 +27,8 @@ from sqlalchemy import select
 from portal import audit, crypto, diagnose, openapi, ratelimit, scheduler, security
 from portal.db import Session
 from portal.forms import GUID, schluessel_hinweis
-from portal.models import (API_SCOPE_WRITE, AUTH_CERT, AUTH_SECRET, ApiKey,
+from portal.models import (API_SCOPE_WRITE, AUTH_CERT, AUTH_SECRET,
+                           CREDENTIAL_FELDER, GEGENSTUECK, ApiKey,
                            CredentialSnapshot, Customer, new_token, utcnow)
 from portal.scanner import data_age_hours, inspect_certificate
 from portal.views.helpers import base_url, config
@@ -353,7 +354,7 @@ def kunde_als_json(kunde, mit_credentials=False, credentials=None):
         "tenant_id": kunde.tenant_id,
         "client_id": kunde.client_id,
         "auth_type": kunde.auth_type,
-        "has_credential": bool(kunde.client_secret_enc or kunde.key_pem_enc),
+        "has_credential": kunde.has_credential,
         "certificate": {
             "thumbprint": kunde.cert_thumbprint or None,
             "not_after": zeitstempel(kunde.cert_not_after),
@@ -524,28 +525,43 @@ def pruefe_zugangsdaten(daten, kunde=None):
     if art not in (AUTH_SECRET, AUTH_CERT):
         return {"auth_type": "Erlaubt sind 'secret' und 'certificate'"}
 
+    # Zugangsdaten der jeweils anderen Anmeldeart abweisen statt sie zu
+    # verwerfen. Vorher nahm die Schnittstelle ein client_secret fuer einen
+    # Zertifikatskunden mit 200 entgegen und legte es nirgends ab: ein
+    # Rotations-Script meldete Erfolg, ohne dass etwas rotiert war.
+    #
+    # Gesammelt statt sofort zurueckgegeben: sonst verdeckt das ueberzaehlige
+    # Feld ein fehlendes Pflichtfeld, und der Aufrufer erfaehrt erst im zweiten
+    # Anlauf, dass ihm auch die Haelfte des Paares fehlt.
+    fehler_felder = {}
+    for feld in CREDENTIAL_FELDER[GEGENSTUECK[art]]:
+        wert = daten.get(feld)
+        if isinstance(wert, str) and wert.strip():
+            fehler_felder[feld] = ("Gehört nicht zu auth_type '%s'. Feld "
+                                   "weglassen oder leer senden." % art)
+
     if art == AUTH_SECRET:
         gesendet = (daten.get("client_secret") or "").strip() if isinstance(
             daten.get("client_secret"), str) else ""
         gespeichert = bool(kunde and kunde.auth_type == AUTH_SECRET
                            and kunde.client_secret_enc)
         if not gesendet and not gespeichert:
-            return {"client_secret": "Pflichtfeld bei auth_type 'secret'"}
-        return {}
+            fehler_felder["client_secret"] = "Pflichtfeld bei auth_type 'secret'"
+        return fehler_felder
 
     cert = daten.get("cert_pem") if isinstance(daten.get("cert_pem"), str) else ""
     key = daten.get("key_pem") if isinstance(daten.get("key_pem"), str) else ""
     if cert.strip() or key.strip():
-        fehler_felder = {}
         if not cert.strip():
             fehler_felder["cert_pem"] = "Gehört zum privaten Schlüssel dazu"
         if not key.strip():
             fehler_felder["key_pem"] = "Gehört zum Zertifikat dazu"
         return fehler_felder
     if kunde and kunde.auth_type == AUTH_CERT and kunde.cert_pem and kunde.key_pem_enc:
-        return {}
-    return {"cert_pem": "Pflichtfeld bei auth_type 'certificate'",
-            "key_pem": "Pflichtfeld bei auth_type 'certificate'"}
+        return fehler_felder
+    fehler_felder.setdefault("cert_pem", "Pflichtfeld bei auth_type 'certificate'")
+    fehler_felder.setdefault("key_pem", "Pflichtfeld bei auth_type 'certificate'")
+    return fehler_felder
 
 
 def pruefe_anlage(daten):
