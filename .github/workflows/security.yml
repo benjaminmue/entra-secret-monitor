@@ -30,8 +30,8 @@ jobs:
     name: Testsuite
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
 
@@ -62,7 +62,7 @@ jobs:
     name: Geheimnisse
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0          # gitleaks braucht die ganze History
 
@@ -105,8 +105,8 @@ jobs:
     name: Abhaengigkeiten
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
 
@@ -124,7 +124,7 @@ jobs:
     name: Abbild
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Portal-Abbild bauen
         run: docker build -f Dockerfile.portal -t portal-pruefung:ci .
@@ -142,7 +142,7 @@ jobs:
         # Auf den Commit festgenagelt, nicht auf ein Etikett: ein Etikett
         # laesst sich verschieben, und diese Action laeuft mit Zugriff auf
         # das Repo. v0.36.0, Stand 06.09.2026.
-        uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
         with:
           image-ref: portal-pruefung:ci
           severity: CRITICAL,HIGH
