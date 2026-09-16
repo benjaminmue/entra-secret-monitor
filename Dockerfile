@@ -1,4 +1,4 @@
-FROM python:3.12-slim
+FROM python:3.14-slim
 
 LABEL org.opencontainers.image.title="Entra ID Secret Monitor" \
       org.opencontainers.image.description="Monitors Entra ID app registration secret and certificate expiry, serves PRTG XML, JSON and a web GUI" \
