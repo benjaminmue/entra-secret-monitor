@@ -4,6 +4,13 @@ version: 2
 updates:
   - package-ecosystem: pip
     directory: /
+    # The requirement files hold ranges, not pins, and the images install the
+    # newest release inside them. The default strategy still raised the lower
+    # bound for every in-range release, one PR each: those bypass the groups
+    # below and changed nothing that gets installed. With this setting a PR
+    # only appears when a release falls outside a range, which is the case
+    # worth a look. pip-audit and Trivy in the gate cover in-range advisories.
+    versioning-strategy: increase-if-necessary
     schedule:
       interval: weekly
       day: monday
