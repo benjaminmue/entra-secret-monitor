@@ -11,6 +11,13 @@ ENV PYTHONUNBUFFERED=1 \
     LISTEN_PORT=8099 \
     PORTAL_DATABASE_URL=sqlite:////data/portal.db
 
+# Debian fixes reach the slim base image only when it is rebuilt upstream,
+# which can lag the advisories by days. Upgrading here keeps the gate from
+# waiting on that.
+RUN apt-get update \
+    && apt-get upgrade -y --no-install-recommends \
+    && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /opt/portal
 
 COPY requirements-portal.txt /opt/portal/requirements-portal.txt

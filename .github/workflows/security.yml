@@ -119,6 +119,7 @@ jobs:
         run: |
           pip install pip-audit
           pip-audit -r requirements-portal.txt --strict
+          pip-audit -r requirements-monitor.txt --strict
 
   image:
     name: Abbild
@@ -126,25 +127,48 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Beide Abbilder in einem Job, nicht als Matrix: die Matrix hängt den
+      # Wert an den Check-Namen, und der Branch-Schutz verlangt genau "Abbild".
+      # Das Monitor-Abbild ist das, was nach GHCR geht; ungeprüft blieb dort
+      # cryptography 45 mit bekannten Lücken liegen.
       - name: Portal-Abbild bauen
         run: docker build -f Dockerfile.portal -t portal-pruefung:ci .
 
-      - name: Laeuft nicht als root
-        run: |
-          nutzer=$(docker run --rm portal-pruefung:ci id -u)
-          if [ "$nutzer" = "0" ]; then
-            echo "::error::Das Abbild startet als root"
-            exit 1
-          fi
-          echo "uid im Abbild: $nutzer"
+      - name: Monitor-Abbild bauen
+        run: docker build -f Dockerfile -t monitor-pruefung:ci .
 
-      - name: Trivy gegen das Abbild
+      - name: Laeuft nicht als root
+        # --entrypoint, weil das Monitor-Abbild python3 als Entrypoint setzt
+        # und "id" sonst als Skriptname bekäme.
+        run: |
+          for abbild in portal-pruefung:ci monitor-pruefung:ci; do
+            nutzer=$(docker run --rm --entrypoint id "$abbild" -u)
+            if [ "$nutzer" = "0" ]; then
+              echo "::error::$abbild startet als root"
+              exit 1
+            fi
+            echo "uid in $abbild: $nutzer"
+          done
+
+      - name: Trivy gegen das Portal-Abbild
         # Auf den Commit festgenagelt, nicht auf ein Etikett: ein Etikett
         # laesst sich verschieben, und diese Action laeuft mit Zugriff auf
-        # das Repo. v0.36.0, Stand 06.09.2026.
-        uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8
+        # das Repo. v0.36.0, Stand 16.09.2026. Die SHA ist die des Commits,
+        # nicht die des annotierten Tag-Objekts (git ls-remote zeigt beide).
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
         with:
           image-ref: portal-pruefung:ci
           severity: CRITICAL,HIGH
           ignore-unfixed: true
           exit-code: "1"
+
+      - name: Trivy gegen das Monitor-Abbild
+        # Läuft auch nach einem Portal-Fund, damit ein Lauf beide Berichte zeigt.
+        if: ${{ !cancelled() }}
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
+        with:
+          image-ref: monitor-pruefung:ci
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: "1"
+          skip-setup-trivy: true

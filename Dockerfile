@@ -10,9 +10,18 @@ ENV PYTHONUNBUFFERED=1 \
     LISTEN_PORT=8099 \
     CACHE_TTL=1800
 
+# Debian fixes reach the slim base image only when it is rebuilt upstream,
+# which can lag the advisories by days. Upgrading here keeps the gate from
+# waiting on that.
+RUN apt-get update \
+    && apt-get upgrade -y --no-install-recommends \
+    && rm -rf /var/lib/apt/lists/*
+
 # cryptography is only needed for certificate based authentication;
 # the slim image installs a prebuilt wheel, no compiler required.
-RUN pip install --no-cache-dir "cryptography>=42,<46"
+COPY requirements-monitor.txt /tmp/requirements-monitor.txt
+RUN pip install --no-cache-dir -r /tmp/requirements-monitor.txt \
+    && rm /tmp/requirements-monitor.txt
 
 WORKDIR /app
 COPY app/ /app/

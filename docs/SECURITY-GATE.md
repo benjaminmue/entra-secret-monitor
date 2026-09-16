@@ -18,8 +18,8 @@ zusätzlich montags:
 |---|---|
 | `tests` | die Testsuite zweimal, ohne und mit den Extras, mit der Bedingung null übersprungener Tests |
 | `secrets` | gitleaks über Arbeitsbaum und History, plus zwei deterministische Prüfungen auf eingecheckte `.env`- und Schlüsseldateien |
-| `dependencies` | `pip-audit --strict` gegen `requirements-portal.txt` |
-| `image` | Abbild bauen, Nachweis dass es nicht als root startet, Trivy auf HIGH und CRITICAL |
+| `dependencies` | `pip-audit --strict` gegen `requirements-portal.txt` und `requirements-monitor.txt` |
+| `image` | Portal- und Monitor-Abbild bauen, Nachweis dass keines als root startet, Trivy auf HIGH und CRITICAL für beide |
 
 Die Testsuite selbst trägt die inhaltlichen Zusicherungen: Bereichstrennung der
 API-Schlüssel, Eingabeprüfung, dass kein Zugangsdatum in einer Antwort landet,
