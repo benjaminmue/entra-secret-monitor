@@ -318,7 +318,7 @@ The machine readable description lives at `/api/v1/openapi.json`. Full documenta
 Before anything reaches `main`, [docs/SECURITY-GATE.md](docs/SECURITY-GATE.md)
 is worked through. Everything that can be automated runs in
 `.github/workflows/security.yml`: both test runs, gitleaks over the tree and the
-history, `pip-audit`, an image build with a non-root check and Trivy. The rest,
+history, `pip-audit`, builds of both images with a non-root check and Trivy. The rest,
 route sweeps against every role and the adversarial pass, is a manual step the
 document describes.
 
@@ -373,8 +373,9 @@ with a different shape will not be caught.
   still caught.
 - PRTG caps sensors at 50 channels. Large tenants need `APP_FILTER`,
   `MAX_CHANNELS`, or one sensor per app group.
-- Certificate authentication requires the `cryptography` package. Client secret
-  authentication is pure standard library.
+- Certificate authentication requires the `cryptography` package
+  (`pip install -r requirements-monitor.txt`). Client secret authentication is
+  pure standard library.
 
 ## License
 

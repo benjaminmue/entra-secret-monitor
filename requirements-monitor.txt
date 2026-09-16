@@ -1,0 +1,7 @@
+# Classic service (Dockerfile). app/ is standard library only; cryptography is
+# needed for certificate based authentication alone.
+#
+# Kept in a file rather than inline in the Dockerfile so Dependabot and
+# pip-audit see it. Inline, the pin sat at <46 for months while every published
+# fix needed 46 or newer, and nothing noticed.
+cryptography>=50.0.1,<51

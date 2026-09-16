@@ -62,8 +62,11 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          # Without cache: a cached apt-get upgrade layer would ship the
+          # Debian packages of its first build, while the gate, which builds
+          # fresh, reports the current ones as clean.
+          no-cache: true
+          pull: true
 
       - name: Smoke test the amd64 image
         run: |
