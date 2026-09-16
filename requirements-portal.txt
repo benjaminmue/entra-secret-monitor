@@ -8,7 +8,7 @@
 Flask>=3.1.3,<4.0
 Flask-Login>=0.6.3,<0.7
 Flask-WTF>=1.3.0,<2.0
-SQLAlchemy>=2.0,<3.0
+SQLAlchemy>=2.0.52,<3.0
 argon2-cffi>=23.1,<26.0
 pyotp>=2.9,<3.0
 qrcode>=7.4,<9.0
