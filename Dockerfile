@@ -20,8 +20,11 @@ RUN apt-get update \
 # cryptography is only needed for certificate based authentication;
 # the slim image installs a prebuilt wheel, no compiler required.
 COPY requirements-monitor.txt /tmp/requirements-monitor.txt
+# pip is only needed at build time. It vendors its own urllib3 and msgpack,
+# which the image scan flags; the running app never calls pip.
 RUN pip install --no-cache-dir -r /tmp/requirements-monitor.txt \
-    && rm /tmp/requirements-monitor.txt
+    && rm /tmp/requirements-monitor.txt \
+    && pip uninstall --yes pip
 
 WORKDIR /app
 COPY app/ /app/
