@@ -33,7 +33,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
         with:
-          python-version: "3.12"
+          python-version: "3.15"
 
       - name: Ohne Extras, reine Standardbibliothek
         # Der Dienst in app/ darf keine Fremdpakete brauchen. Laeuft zuerst und
@@ -108,7 +108,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
         with:
-          python-version: "3.12"
+          python-version: "3.15"
 
       - name: pip-audit
         # Bricht den Lauf ab, wenn eine Abhaengigkeit eine bekannte Luecke hat.

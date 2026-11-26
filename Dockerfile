@@ -1,4 +1,4 @@
-FROM python:3.12-slim
+FROM python:3.15-slim
 
 LABEL org.opencontainers.image.title="Entra ID Secret Monitor" \
       org.opencontainers.image.description="Monitors Entra ID app registration secret and certificate expiry, serves PRTG XML, JSON and a web GUI" \
@@ -20,8 +20,11 @@ RUN apt-get update \
 # cryptography is only needed for certificate based authentication;
 # the slim image installs a prebuilt wheel, no compiler required.
 COPY requirements-monitor.txt /tmp/requirements-monitor.txt
+# pip is only needed at build time. It vendors its own urllib3 and msgpack,
+# which the image scan flags; the running app never calls pip.
 RUN pip install --no-cache-dir -r /tmp/requirements-monitor.txt \
-    && rm /tmp/requirements-monitor.txt
+    && rm /tmp/requirements-monitor.txt \
+    && pip uninstall --yes pip
 
 WORKDIR /app
 COPY app/ /app/

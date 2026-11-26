@@ -1,4 +1,4 @@
-FROM python:3.12-slim
+FROM python:3.15-slim
 
 LABEL org.opencontainers.image.title="Entra Credential Portal" \
       org.opencontainers.image.description="Multi tenant portal for Entra ID credential expiry: web GUI with 2FA, daily distributed scans and per customer PRTG endpoints" \
@@ -21,7 +21,10 @@ RUN apt-get update \
 WORKDIR /opt/portal
 
 COPY requirements-portal.txt /opt/portal/requirements-portal.txt
-RUN pip install --no-cache-dir -r /opt/portal/requirements-portal.txt
+# pip is only needed at build time. It vendors its own urllib3 and msgpack,
+# which the image scan flags; the running app never calls pip.
+RUN pip install --no-cache-dir -r /opt/portal/requirements-portal.txt \
+    && pip uninstall --yes pip
 
 COPY app/ /opt/portal/app/
 COPY portal/ /opt/portal/portal/
