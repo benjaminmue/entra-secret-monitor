@@ -55,6 +55,51 @@ class CacheTest(unittest.TestCase):
             self.assertEqual(server.get_result(make_config())["summary"]["total"], 1)
 
 
+class RefreshCooldownTest(unittest.TestCase):
+    """/refresh may force a Graph scan only once per cooldown and tenant."""
+
+    def setUp(self):
+        server._last_refresh.clear()
+        self.addCleanup(server._last_refresh.clear)
+
+    def test_second_claim_within_the_cooldown_is_refused(self):
+        with mock.patch.object(server, "REFRESH_COOLDOWN", 60):
+            self.assertTrue(server.claim_refresh("demo"))
+            self.assertFalse(server.claim_refresh("demo"))
+
+    def test_tenants_have_independent_cooldowns(self):
+        with mock.patch.object(server, "REFRESH_COOLDOWN", 60):
+            self.assertTrue(server.claim_refresh("demo"))
+            self.assertTrue(server.claim_refresh("zweit"))
+
+    def test_claim_is_granted_again_after_the_cooldown(self):
+        with mock.patch.object(server, "REFRESH_COOLDOWN", 0):
+            self.assertTrue(server.claim_refresh("demo"))
+            self.assertTrue(server.claim_refresh("demo"))
+
+
+class RefreshRouteThrottleTest(unittest.TestCase):
+    """Hammering /refresh must not turn into one Graph scan per request."""
+
+    def setUp(self):
+        server._cache.clear()
+        server._last_refresh.clear()
+        self.addCleanup(server._cache.clear)
+        self.addCleanup(server._last_refresh.clear)
+        self.server = LiveServer(tenants={"demo": make_config(key="demo")}).start()
+        self.addCleanup(self.server.stop)
+
+    def test_repeated_refresh_scans_once_within_the_cooldown(self):
+        with mock.patch.object(graph, "fetch_credentials",
+                               return_value=[make_credential(app_name="Alpha")]) as fetch, \
+             mock.patch.object(server, "REFRESH_COOLDOWN", 60):
+            for _ in range(5):
+                status, _, body = self.server.get("/refresh?tenant=demo")
+                self.assertEqual(200, status)
+                self.assertIn("Alpha", body)
+        self.assertEqual(fetch.call_count, 1)
+
+
 class GetResultSafeTest(unittest.TestCase):
     def setUp(self):
         server._cache.clear()
@@ -141,14 +186,14 @@ class RenderTest(unittest.TestCase):
         return graph.build_result([make_credential(app_name="Alpha")], cfg)
 
     def test_tenant_block_shows_name_and_credentials(self):
-        html_out = server.render_tenant_block(self._result(display_name="Contoso"), "")
+        html_out = server.render_tenant_block(self._result(display_name="Contoso"))
         self.assertIn("Contoso", html_out)
         self.assertIn("Alpha", html_out)
 
     def test_tenant_block_shows_the_error_instead_of_a_table(self):
         result = self._result()
         result["error"] = "GraphError: kaputt"
-        html_out = server.render_tenant_block(result, "")
+        html_out = server.render_tenant_block(result)
         self.assertIn("kaputt", html_out)
         self.assertNotIn("<table", html_out)
 
@@ -160,16 +205,16 @@ class RenderTest(unittest.TestCase):
         self.assertIn("Application.Read.All", html_out)
 
     def test_page_without_tenants_shows_the_setup_card(self):
-        html_out = server.render_page([], "", "host:8099")
+        html_out = server.render_page([], False, "host:8099")
         self.assertIn("Kein Tenant eingerichtet", html_out)
 
     def test_page_with_a_broken_config_shows_the_error_not_the_setup_card(self):
-        html_out = server.render_page([], "", "host:8099", "GraphError: kaputt")
+        html_out = server.render_page([], False, "host:8099", "GraphError: kaputt")
         self.assertIn("Konfigurationsfehler", html_out)
         self.assertNotIn("Kein Tenant eingerichtet", html_out)
 
     def test_page_with_results_renders_them(self):
-        html_out = server.render_page([self._result()], "", "host:8099")
+        html_out = server.render_page([self._result()], False, "host:8099")
         self.assertIn("Alpha", html_out)
         self.assertNotIn("Kein Tenant eingerichtet", html_out)
 
@@ -371,6 +416,31 @@ class MainTest(unittest.TestCase):
         _, printed, served = self._run_main()
         self.assertIn("Tenants: demo", str(printed.call_args_list))
         served.assert_called_once()
+
+    def test_missing_token_on_all_interfaces_warns_loudly_but_still_serves(self):
+        # Refusing to start would break existing PRTG sensors without a token.
+        with mock.patch.object(server, "API_TOKEN", ""), \
+             mock.patch.object(server, "LISTEN_ADDR", "0.0.0.0"):
+            _, printed, served = self._run_main()
+        output = str(printed.call_args_list)
+        self.assertIn("API_TOKEN ist leer", output)
+        self.assertIn("0.0.0.0", output)
+        served.assert_called_once()
+
+    def test_missing_token_on_loopback_still_warns(self):
+        with mock.patch.object(server, "API_TOKEN", ""), \
+             mock.patch.object(server, "LISTEN_ADDR", "127.0.0.1"):
+            self.assertIn("API_TOKEN ist leer", server.anonymous_access_warning())
+
+    def test_no_warning_when_a_token_is_set(self):
+        with mock.patch.object(server, "API_TOKEN", "x"):
+            self.assertIsNone(server.anonymous_access_warning())
+
+    def test_loopback_detection(self):
+        for addr in ("127.0.0.1", "::1", "localhost", "127.0.0.2"):
+            self.assertTrue(server.is_loopback(addr), addr)
+        for addr in ("0.0.0.0", "::", "192.168.1.5", "host.example"):
+            self.assertFalse(server.is_loopback(addr), addr)
 
     def test_a_broken_configuration_warns_but_still_serves(self):
         # The GUI is reachable without tenants and explains what to configure,

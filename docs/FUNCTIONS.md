@@ -9,7 +9,7 @@ Implementierungen derselben Sache werden.
 | Kennzahl | Wert |
 |---|---|
 | Module | 30 |
-| Funktionen | 280 |
+| Funktionen | 286 |
 | Ohne Docstring | 4 |
 | Namensdubletten | 0 |
 | Strukturdubletten | 0 |
@@ -63,57 +63,63 @@ nicht eine Ausnahme vom Aufräumen.
 
 | Zeile | Funktion | Rückgabe | Beschreibung |
 |---|---|---|---|
-| 73 | `__post_init__(self)` | kein Rückgabewert | Fill in the display name and validate the credential configuration. |
-| 86 | `as_bool(value, default=False)` | Wert | Interpret common truthy strings from environment variables. |
-| 98 | `as_int(value, default)` | Wert | Parse an integer from an environment variable, falling back on default. |
-| 106 | `_clamp_channels(value)` | Wert | Keep max_channels inside the range PRTG can actually render. |
-| 130 | `_env_prefix(key)` | Wert | Turn a tenant key into its environment variable prefix. |
-| 136 | `tenant_from_env(key, env=None)` | Wert | Build a TenantConfig from prefixed environment variables. |
-| 141 | `get(name, fallback='')` | Wert | Read a prefixed variable, falling back to the unprefixed one. |
-| 164 | `tenant_from_dict(key, data)` | Wert | Build a TenantConfig from one entry of tenants.json. |
-| 185 | `load_tenants(env=None, config_path=None)` | Wert | Assemble all configured tenants. |
-| 218 | `_post_token(tenant_id, data)` | Wert | POST to the tenant token endpoint and return the access token. |
-| 237 | `_client_assertion(cfg)` | Wert | Build a signed JWT client assertion from the configured certificate. |
-| 253 | `segment(obj)` | Wert | Base64url encode one JWT segment without padding. |
-| 273 | `get_token(cfg)` | Wert | Acquire an app-only Graph token, certificate first, secret as fallback. |
-| 309 | `days_left(self)` | Wert | Whole days until expiry; negative when already expired. |
-| 314 | `graph_get_all(token, path)` | Wert | Follow @odata.nextLink and return all items of a Graph collection. |
-| 336 | `parse_date(value)` | Wert | Parse a Graph ISO 8601 timestamp into a timezone aware datetime. |
-| 346 | `collect_credentials(token, include_sp)` | Wert | Fetch app registrations (and optionally SPs) and flatten their credentials. |
-| 379 | `build_channels(creds, cfg)` | Wert | Group credentials per app and type and keep the longest remaining runtime. |
-| 434 | `_assign_channel_names(channels)` | kein Rückgabewert | Give every channel a unique display name, in place. |
-| 463 | `_shared_names(channels)` | Wert | Return the groups of channels that currently share a name. |
-| 471 | `summarize(channels, cfg)` | Wert | Compute the three headline numbers used by PRTG and the web GUI. |
-| 481 | `fetch_credentials(cfg)` | Wert | Authenticate and return the raw credential list for one tenant. |
-| 492 | `build_result(creds, cfg)` | Wert | Turn raw credentials into the result structure used by every renderer. |
-| 506 | `scan_tenant(cfg)` | Wert | Run a full scan for one tenant and return channels plus summary. |
-| 521 | `_xml_allows(code)` | Wert | True when a code point may appear in an XML 1.0 document. |
-| 536 | `xml_text(value)` | Wert | Escape a value for XML and drop characters XML cannot represent. |
-| 542 | `render_prtg(result, cfg, extra_channels=None)` | Wert | Render PRTG XML: three summary channels plus one channel per app. |
-| 558 | `channel(name, value, unit, limits=None)` | kein Rückgabewert | Append one <result> block, optionally with static limits. |
-| 600 | `render_prtg_error(message)` | Wert | Render a PRTG error response so the sensor turns red instead of staying silent. |
-| 606 | `render_text(result, cfg)` | Wert | Render a readable table for manual runs on the shell. |
-| 625 | `push_to_prtg(url, xml)` | kein Rückgabewert | Send the XML to a PRTG HTTP Push Data Advanced sensor. |
+| 76 | `__post_init__(self)` | kein Rückgabewert | Fill in the display name and validate the credential configuration. |
+| 89 | `as_bool(value, default=False)` | Wert | Interpret common truthy strings from environment variables. |
+| 101 | `as_int(value, default)` | Wert | Parse an integer from an environment variable, falling back on default. |
+| 109 | `_clamp_channels(value)` | Wert | Keep max_channels inside the range PRTG can actually render. |
+| 133 | `_env_prefix(key)` | Wert | Turn a tenant key into its environment variable prefix. |
+| 139 | `tenant_from_env(key, env=None)` | Wert | Build a TenantConfig from prefixed environment variables. |
+| 144 | `get(name, fallback='')` | Wert | Read a prefixed variable, falling back to the unprefixed one. |
+| 167 | `tenant_from_dict(key, data)` | Wert | Build a TenantConfig from one entry of tenants.json. |
+| 188 | `load_tenants(env=None, config_path=None)` | Wert | Assemble all configured tenants. |
+| 221 | `_post_token(tenant_id, data)` | Wert | POST to the tenant token endpoint and return the access token. |
+| 240 | `_client_assertion(cfg)` | Wert | Build a signed JWT client assertion from the configured certificate. |
+| 256 | `segment(obj)` | Wert | Base64url encode one JWT segment without padding. |
+| 276 | `get_token(cfg)` | Wert | Acquire an app-only Graph token, certificate first, secret as fallback. |
+| 312 | `days_left(self)` | Wert | Whole days until expiry; negative when already expired. |
+| 317 | `check_graph_url(url)` | kein Rückgabewert | Raise GraphError unless url points to Graph over https. |
+| 332 | `graph_get_all(token, path)` | Wert | Follow @odata.nextLink and return all items of a Graph collection. |
+| 355 | `parse_date(value)` | Wert | Parse a Graph ISO 8601 timestamp into a timezone aware datetime. |
+| 365 | `collect_credentials(token, include_sp)` | Wert | Fetch app registrations (and optionally SPs) and flatten their credentials. |
+| 398 | `build_channels(creds, cfg)` | Wert | Group credentials per app and type and keep the longest remaining runtime. |
+| 453 | `_assign_channel_names(channels)` | kein Rückgabewert | Give every channel a unique display name, in place. |
+| 482 | `_shared_names(channels)` | Wert | Return the groups of channels that currently share a name. |
+| 490 | `summarize(channels, cfg)` | Wert | Compute the three headline numbers used by PRTG and the web GUI. |
+| 500 | `fetch_credentials(cfg)` | Wert | Authenticate and return the raw credential list for one tenant. |
+| 511 | `build_result(creds, cfg)` | Wert | Turn raw credentials into the result structure used by every renderer. |
+| 525 | `scan_tenant(cfg)` | Wert | Run a full scan for one tenant and return channels plus summary. |
+| 540 | `_xml_allows(code)` | Wert | True when a code point may appear in an XML 1.0 document. |
+| 555 | `xml_text(value)` | Wert | Escape a value for XML and drop characters XML cannot represent. |
+| 561 | `render_prtg(result, cfg, extra_channels=None)` | Wert | Render PRTG XML: three summary channels plus one channel per app. |
+| 577 | `channel(name, value, unit, limits=None)` | kein Rückgabewert | Append one <result> block, optionally with static limits. |
+| 619 | `render_prtg_error(message)` | Wert | Render a PRTG error response so the sensor turns red instead of staying silent. |
+| 625 | `render_text(result, cfg)` | Wert | Render a readable table for manual runs on the shell. |
+| 644 | `push_to_prtg(url, xml)` | kein Rückgabewert | Send the XML to a PRTG HTTP Push Data Advanced sensor. |
 
 ### `app/server.py`
 
 | Zeile | Funktion | Rückgabe | Beschreibung |
 |---|---|---|---|
-| 69 | `get_credentials(cfg, force=False)` | Wert | Return the raw credential list for one tenant, cached within the TTL. |
-| 88 | `get_result(cfg, force=False)` | Wert | Return a rendered scan result for one tenant. |
-| 93 | `apply_overrides(cfg, params)` | Wert | Copy the tenant config with per-request overrides from the query string. |
-| 125 | `get_result_safe(cfg, force=False)` | Wert | Like get_result but turns exceptions into an error result instead of raising. |
-| 214 | `badge(days, cfg_warn, cfg_error)` | Wert | Return the HTML badge for one remaining runtime value. |
-| 226 | `render_tenant_block(result, token_qs)` | Wert | Render one tenant card including summary numbers and the credential table. |
-| 280 | `render_setup_block()` | Wert | Render the card shown while no tenant is configured. |
-| 324 | `render_page(results, token_qs, host, config_error=None)` | Wert | Render the complete overview page for all tenants. |
-| 352 | `log_message(self, fmt, *args)` | kein Rückgabewert | Log one line per request, with any API token in the URL redacted. |
-| 357 | `_authorized(self, params)` | Wert | Check the optional API token from query string or Bearer header. |
-| 368 | `_send(self, code, body, content_type)` | kein Rückgabewert | Write one complete response. |
-| 380 | `_tenants(self)` | Wert | Load the tenant configuration, raising GraphError on problems. |
-| 384 | `do_GET(self)` | kein Rückgabewert | Route the request to the matching endpoint. |
-| 465 | `push_loop()` | kein Rückgabewert | Periodically push PRTG XML for every tenant that has a push URL configured. |
-| 483 | `main()` | kein Rückgabewert | Start the background push thread and serve HTTP until terminated. |
+| 89 | `get_credentials(cfg, force=False)` | Wert | Return the raw credential list for one tenant, cached within the TTL. |
+| 108 | `claim_refresh(key)` | Wert | Return True when a forced rescan of tenant key may run now. |
+| 124 | `get_result(cfg, force=False)` | Wert | Return a rendered scan result for one tenant. |
+| 129 | `apply_overrides(cfg, params)` | Wert | Copy the tenant config with per-request overrides from the query string. |
+| 161 | `get_result_safe(cfg, force=False)` | Wert | Like get_result but turns exceptions into an error result instead of raising. |
+| 250 | `badge(days, cfg_warn, cfg_error)` | Wert | Return the HTML badge for one remaining runtime value. |
+| 262 | `render_tenant_block(result)` | Wert | Render one tenant card including summary numbers and the credential table. |
+| 316 | `render_setup_block()` | Wert | Render the card shown while no tenant is configured. |
+| 360 | `render_page(results, token_required, host, config_error=None)` | Wert | Render the complete overview page for all tenants. |
+| 389 | `auth_cookie_value()` | Wert | Derive the GUI cookie value from API_TOKEN; the token itself never leaves. |
+| 395 | `is_loopback(addr)` | Wert | Return True when addr binds only to the local host. |
+| 405 | `anonymous_access_warning()` | Wert | Return the startup warning for a service without API_TOKEN, or None. |
+| 428 | `log_message(self, fmt, *args)` | kein Rückgabewert | Log one line per request, with any API token in the URL redacted. |
+| 433 | `_authorized(self, params)` | Wert | Check the optional API token from query string, Bearer header or GUI cookie. |
+| 448 | `_auth_cookie(self)` | Wert | Return the GUI auth cookie from the request, or an empty string. |
+| 458 | `_send(self, code, body, content_type, extra_headers=())` | kein Rückgabewert | Write one complete response. |
+| 472 | `_tenants(self)` | Wert | Load the tenant configuration, raising GraphError on problems. |
+| 476 | `do_GET(self)` | kein Rückgabewert | Route the request to the matching endpoint. |
+| 567 | `push_loop()` | kein Rückgabewert | Periodically push PRTG XML for every tenant that has a push URL configured. |
+| 585 | `main()` | kein Rückgabewert | Start the background push thread and serve HTTP until terminated. |
 
 ### `portal/audit.py`
 

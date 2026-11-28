@@ -28,31 +28,31 @@ class HtmlEscapingTest(unittest.TestCase):
     def test_application_name_from_graph_is_escaped(self):
         cfg = make_config()
         result = graph.build_result([make_credential(app_name=XSS)], cfg)
-        html_out = server.render_tenant_block(result, "")
+        html_out = server.render_tenant_block(result)
         self.assertNotIn("<script>", html_out)
         self.assertIn("&lt;script&gt;", html_out)
 
     def test_credential_name_from_graph_is_escaped(self):
         cfg = make_config()
         result = graph.build_result([make_credential(display_name=XSS)], cfg)
-        self.assertNotIn("<script>", server.render_tenant_block(result, ""))
+        self.assertNotIn("<script>", server.render_tenant_block(result))
 
     def test_tenant_display_name_is_escaped(self):
         cfg = make_config(display_name=XSS)
         result = graph.build_result([make_credential()], cfg)
-        self.assertNotIn("<script>", server.render_tenant_block(result, ""))
+        self.assertNotIn("<script>", server.render_tenant_block(result))
 
     def test_error_text_is_escaped(self):
         result = graph.build_result([], make_config())
         result["error"] = XSS
-        self.assertNotIn("<script>", server.render_tenant_block(result, ""))
+        self.assertNotIn("<script>", server.render_tenant_block(result))
 
     def test_config_error_on_the_page_is_escaped(self):
-        self.assertNotIn("<script>", server.render_page([], "", "host", XSS))
+        self.assertNotIn("<script>", server.render_page([], False, "host", XSS))
 
     def test_host_header_is_escaped_into_the_hint(self):
         # The Host header is attacker controlled and ends up in the example URL.
-        self.assertNotIn("<script>", server.render_page([], "", XSS))
+        self.assertNotIn("<script>", server.render_page([], False, XSS))
 
     def test_badge_label_is_escaped(self):
         self.assertNotIn("<script>", server.badge(-1, 30, 14))
@@ -156,6 +156,44 @@ class LiveServerTest(unittest.TestCase):
     def test_token_is_not_echoed_back_into_the_page(self):
         _, _, body = self.get("/healthz")
         self.assertNotIn(self.TOKEN, body)
+
+    def test_gui_links_and_hint_carry_no_token(self):
+        # The token in page links ended up in page source, history and proxy logs.
+        status, _, body = self.get("/?token=" + self.TOKEN)
+        self.assertEqual(status, 200)
+        self.assertNotIn(self.TOKEN, body)
+        self.assertNotIn("token=" + self.TOKEN, body)
+        self.assertIn("token=&lt;API_TOKEN&gt;", body)
+
+    def test_gui_visit_with_the_token_sets_a_strict_httponly_cookie(self):
+        _, headers, _ = self.get("/?token=" + self.TOKEN)
+        cookie = headers.get("Set-Cookie", "")
+        self.assertIn(server.AUTH_COOKIE + "=", cookie)
+        self.assertIn("HttpOnly", cookie)
+        self.assertIn("SameSite=Strict", cookie)
+        self.assertNotIn(self.TOKEN, cookie)
+
+    def test_cookie_authenticates_the_gui_links(self):
+        _, headers, _ = self.get("/?token=" + self.TOKEN)
+        cookie = headers["Set-Cookie"].split(";")[0]
+        for path in ("/", "/json?tenant=demo", "/prtg?tenant=demo", "/refresh?tenant=demo"):
+            status, _, body = self.get(path, {"Cookie": cookie})
+            self.assertEqual(status, 200, path)
+            self.assertNotIn("Ungueltiger oder fehlender Token", body, path)
+
+    def test_forged_or_malformed_cookie_is_rejected(self):
+        for cookie in (server.AUTH_COOKIE + "=falsch", server.AUTH_COOKIE + "=" + self.TOKEN,
+                       'x="unterminated', server.AUTH_COOKIE + "=%C3%A4"):
+            self.assertEqual(self.get("/", {"Cookie": cookie})[0], 401, cookie)
+
+    def test_wrong_query_token_is_not_rescued_by_a_valid_cookie(self):
+        _, headers, _ = self.get("/?token=" + self.TOKEN)
+        cookie = headers["Set-Cookie"].split(";")[0]
+        self.assertEqual(self.get("/?token=falsch", {"Cookie": cookie})[0], 401)
+
+    def test_machine_routes_set_no_cookie(self):
+        _, headers, _ = self.get("/json?tenant=demo&token=" + self.TOKEN)
+        self.assertNotIn("Set-Cookie", headers)
 
     # -- hardening ---------------------------------------------------------
 
