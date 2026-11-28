@@ -28,16 +28,16 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@v4
+        uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
 
       - name: Set up Buildx
-        uses: docker/setup-buildx-action@v4
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
       - name: Log in to GHCR
-        uses: docker/login-action@v4
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
@@ -45,7 +45,7 @@ jobs:
 
       - name: Derive tags and labels
         id: meta
-        uses: docker/metadata-action@v6
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
@@ -54,14 +54,19 @@ jobs:
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
 
-      - name: Build and push
-        uses: docker/build-push-action@v7
+      # Build the amd64 image first and load it into the local daemon, so the
+      # smoke test runs against exactly this build before anything is pushed.
+      # Testing ":latest" from GHCR checked the previous image on tag builds,
+      # because "latest" is only set on the default branch, and it ran after the
+      # push.
+      - name: Build amd64 image for the smoke test
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
+          platforms: linux/amd64
+          load: true
+          push: false
+          tags: smoke-candidate:${{ github.sha }}
           # Without cache: a cached apt-get upgrade layer would ship the
           # Debian packages of its first build, while the gate, which builds
           # fresh, reports the current ones as clean.
@@ -69,8 +74,10 @@ jobs:
           pull: true
 
       - name: Smoke test the amd64 image
+        env:
+          IMAGE: smoke-candidate:${{ github.sha }}
         run: |
-          IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest"
+          set -euo pipefail
           docker run -d --name smoke -p 8099:8099 \
             -e TENANTS=demo \
             -e DEMO_TENANT_ID=demo.invalid \
@@ -93,3 +100,17 @@ jobs:
           curl -fsS http://127.0.0.1:8099/ | grep -q "Entra ID Secret Monitor"
           docker logs smoke
           docker rm -f smoke
+
+      - name: Build and push
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          # No no-cache here on purpose: the builder of this job holds only the
+          # layers of the fresh amd64 build above (no GHA cache is configured),
+          # so the pushed amd64 image reuses exactly the layers that passed the
+          # smoke test. arm64 is built fresh. pull keeps the base current.
+          pull: true

@@ -227,7 +227,8 @@ class GraphGetAllTest(unittest.TestCase):
             yield response
 
     def test_follows_next_link_until_exhausted(self):
-        pages = [{"value": [1, 2], "@odata.nextLink": "https://graph/next"},
+        pages = [{"value": [1, 2],
+                  "@odata.nextLink": "https://graph.microsoft.com/v1.0/applications?$skiptoken=x"},
                  {"value": [3]}]
         with mock.patch.object(graph.json, "load",
                                side_effect=pages), \
@@ -243,6 +244,23 @@ class GraphGetAllTest(unittest.TestCase):
                                side_effect=list(self._responses([page]))) as opened:
             self.assertEqual(graph.graph_get_all("tok", "/applications"), [1])
         self.assertEqual(opened.call_count, 1)
+
+
+    def test_next_link_to_a_foreign_host_is_refused_before_the_token_leaves(self):
+        # The access token rides on every request; a nextLink must not be able
+        # to redirect it to another host.
+        for link in ("https://evil.example/v1.0/applications?$skiptoken=x",
+                     "http://graph.microsoft.com/v1.0/applications?$skiptoken=x",
+                     "https://graph.microsoft.com.evil.example/v1.0/x",
+                     "https://user@graph.microsoft.com/v1.0/x"):
+            pages = [{"value": [1], "@odata.nextLink": link}]
+            with self.subTest(link=link), \
+                 mock.patch.object(graph.json, "load", side_effect=pages), \
+                 mock.patch.object(graph.urllib.request, "urlopen",
+                                   side_effect=list(self._responses(pages))) as opened:
+                with self.assertRaises(graph.GraphError):
+                    graph.graph_get_all("tok", "/applications")
+            self.assertEqual(opened.call_count, 1)
 
 
 class CollectCredentialsTest(unittest.TestCase):

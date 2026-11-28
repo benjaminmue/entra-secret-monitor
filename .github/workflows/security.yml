@@ -30,8 +30,8 @@ jobs:
     name: Testsuite
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.15"
 
@@ -62,15 +62,21 @@ jobs:
     name: Geheimnisse
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0          # gitleaks braucht die ganze History
 
       - name: gitleaks installieren
+        # Prüfsumme fest im Workflow: ein ausgetauschtes Release-Archiv bricht
+        # den Lauf ab, statt mit Repo-Zugriff ausgeführt zu werden.
         run: |
+          set -euo pipefail
           VERSION=8.30.1
-          curl -sSL "https://github.com/gitleaks/gitleaks/releases/download/v${VERSION}/gitleaks_${VERSION}_linux_x64.tar.gz" \
-            | tar -xz -C /usr/local/bin gitleaks
+          SHA256=551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
+          curl -sSfL -o /tmp/gitleaks.tar.gz \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${VERSION}/gitleaks_${VERSION}_linux_x64.tar.gz"
+          echo "${SHA256}  /tmp/gitleaks.tar.gz" | sha256sum -c -
+          tar -xzf /tmp/gitleaks.tar.gz -C /usr/local/bin gitleaks
           gitleaks version
 
       - name: gitleaks ueber die ganze History
@@ -105,8 +111,8 @@ jobs:
     name: Abhaengigkeiten
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.15"
 
@@ -125,7 +131,7 @@ jobs:
     name: Abbild
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       # Beide Abbilder in einem Job, nicht als Matrix: die Matrix hängt den
       # Wert an den Check-Namen, und der Branch-Schutz verlangt genau "Abbild".
@@ -155,7 +161,7 @@ jobs:
         # laesst sich verschieben, und diese Action laeuft mit Zugriff auf
         # das Repo. v0.36.0, Stand 16.09.2026. Die SHA ist die des Commits,
         # nicht die des annotierten Tag-Objekts (git ls-remote zeigt beide).
-        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           image-ref: portal-pruefung:ci
           severity: CRITICAL,HIGH
@@ -165,7 +171,7 @@ jobs:
       - name: Trivy gegen das Monitor-Abbild
         # Läuft auch nach einem Portal-Fund, damit ein Lauf beide Berichte zeigt.
         if: ${{ !cancelled() }}
-        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           image-ref: monitor-pruefung:ci
           severity: CRITICAL,HIGH

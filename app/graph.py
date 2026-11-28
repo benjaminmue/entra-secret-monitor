@@ -28,6 +28,9 @@ from xml.sax.saxutils import escape
 GRAPH_BASE = "https://graph.microsoft.com/v1.0"
 GRAPH_SCOPE = "https://graph.microsoft.com/.default"
 SELECT_FIELDS = "id,appId,displayName,passwordCredentials,keyCredentials"
+# Der Bearer-Token geht nur an diesen Host. Ein nextLink auf einen anderen Host
+# oder über http wird abgewiesen, statt den Token dorthin mitzuschicken.
+GRAPH_HOST = urllib.parse.urlsplit(GRAPH_BASE).hostname
 
 # PRTG rendert hoechstens 50 Kanaele je Sensor. Drei belegt die Zusammenfassung
 # (Minimum, Kritisch, Abgelaufen), der Rest steht Anwendungen zur Verfuegung.
@@ -311,11 +314,27 @@ class Credential:
         return int((self.end_date - datetime.now(timezone.utc)).total_seconds() // 86400)
 
 
+def check_graph_url(url):
+    """
+    Raise GraphError unless url points to Graph over https.
+
+    graph_get_all follows @odata.nextLink from the response body and attaches
+    the access token to every request. Without this check a manipulated or
+    malformed page would send the token to whatever host it names.
+    """
+    parts = urllib.parse.urlsplit(url)
+    if parts.scheme != "https" or parts.hostname != GRAPH_HOST or parts.username \
+            or parts.password:
+        raise GraphError("Graph-Folgelink auf fremdes Ziel abgewiesen: %s://%s"
+                         % (parts.scheme, parts.hostname or ""))
+
+
 def graph_get_all(token, path):
     """Follow @odata.nextLink and return all items of a Graph collection."""
     items = []
     url = GRAPH_BASE + path
     while url:
+        check_graph_url(url)
         req = urllib.request.Request(url, headers={
             "Authorization": "Bearer " + token,
             "Accept": "application/json",

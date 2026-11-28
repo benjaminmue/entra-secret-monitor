@@ -10,19 +10,27 @@ Serves the same data in three shapes:
                               optional: &filter= &exclude= &warn= &error=
                               &show_expired= &max_channels=
   GET /json[?tenant=<key>]    raw JSON
-  GET /refresh?tenant=<key>   drop the cache entry and reload
+  GET /refresh?tenant=<key>   drop the cache entry and reload, at most once
+                              per REFRESH_COOLDOWN seconds and tenant
   GET /healthz                liveness probe, never requires a token
 
 Environment:
   LISTEN_ADDR   default 0.0.0.0
   LISTEN_PORT   default 8099
   API_TOKEN     when set, every endpoint except /healthz requires
-                ?token=<value> or an Authorization: Bearer header
+                ?token=<value> or an Authorization: Bearer header; a GUI
+                visit with ?token= also sets a cookie so the page links
+                carry no token
   CACHE_TTL     seconds a scan result is reused, default 1800
+  REFRESH_COOLDOWN  minimum seconds between two forced rescans of the
+                same tenant via /refresh, default 60
   PUSH_INTERVAL seconds between background pushes, 0 disables, default 0
 """
 
+import hashlib
+import hmac
 import html
+import ipaddress
 import json
 import os
 import re
@@ -31,6 +39,7 @@ import time
 import urllib.parse
 from dataclasses import replace
 from datetime import datetime, timezone
+from http.cookies import CookieError, SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from secrets import compare_digest
 
@@ -57,9 +66,20 @@ SECURITY_HEADERS = (
 _TOKEN_IN_QUERY = re.compile(r"([?&]token=)[^&\s]*", re.IGNORECASE)
 CACHE_TTL = int(os.environ.get("CACHE_TTL", "1800"))
 PUSH_INTERVAL = int(os.environ.get("PUSH_INTERVAL", "0"))
+# Jeder /refresh löst einen Token-Abruf und einen vollen Graph-Scan im
+# Kundentenant aus. Ohne Sperrzeit kann jeder, der die GUI erreicht, beliebig
+# viele davon anstossen und den Tenant ins Graph-Throttling treiben.
+REFRESH_COOLDOWN = int(os.environ.get("REFRESH_COOLDOWN", "60"))
+
+# Die GUI-Links tragen den Token nicht mehr in der URL, wo er im Quelltext, in
+# der Browser-History und in Proxy-Logs landet. Nach einem Aufruf mit ?token=
+# authentisiert stattdessen dieses Cookie. Es enthält nur einen vom Token
+# abgeleiteten HMAC, nie den Token selbst.
+AUTH_COOKIE = "esm_auth"
 
 _cache = {}
 _cache_lock = threading.Lock()
+_last_refresh = {}
 
 
 # --------------------------------------------------------------------------
@@ -83,6 +103,22 @@ def get_credentials(cfg, force=False):
     with _cache_lock:
         _cache[cfg.key] = (now, creds)
     return creds
+
+
+def claim_refresh(key):
+    """
+    Return True when a forced rescan of tenant key may run now.
+
+    Records the attempt under the cache lock, so concurrent /refresh calls
+    within the cooldown cannot each start their own Graph scan.
+    """
+    now = time.monotonic()
+    with _cache_lock:
+        last = _last_refresh.get(key)
+        if last is not None and now - last < REFRESH_COOLDOWN:
+            return False
+        _last_refresh[key] = now
+        return True
 
 
 def get_result(cfg, force=False):
@@ -223,7 +259,7 @@ def badge(days, cfg_warn, cfg_error):
     return '<span class="badge %s">%s</span>' % (cls, html.escape(label))
 
 
-def render_tenant_block(result, token_qs):
+def render_tenant_block(result):
     """Render one tenant card including summary numbers and the credential table."""
     esc = html.escape
     warn, err = result["warn_days"], result["error_days"]
@@ -233,10 +269,10 @@ def render_tenant_block(result, token_qs):
     parts = ['<div class="tenant">', '<div class="head">',
              "<h2>%s</h2>" % esc(result["display_name"]),
              '<div class="links">'
-             '<a href="/prtg?tenant=%s%s">PRTG-XML</a>'
-             '<a href="/json?tenant=%s%s">JSON</a>'
-             '<a href="/refresh?tenant=%s%s">Neu laden</a></div>'
-             % (key, token_qs, key, token_qs, key, token_qs),
+             '<a href="/prtg?tenant=%s">PRTG-XML</a>'
+             '<a href="/json?tenant=%s">JSON</a>'
+             '<a href="/refresh?tenant=%s">Neu laden</a></div>'
+             % (key, key, key),
              "</div>"]
 
     if result.get("error"):
@@ -321,16 +357,22 @@ def render_setup_block():
         "</div>" % (env_example, path, json_example))
 
 
-def render_page(results, token_qs, host, config_error=None):
-    """Render the complete overview page for all tenants."""
+def render_page(results, token_required, host, config_error=None):
+    """
+    Render the complete overview page for all tenants.
+
+    token_required only switches the PRTG hint to a placeholder; the token
+    value itself never appears in the page.
+    """
     if config_error:
         body = ('<div class="tenant"><div class="head"><h2>Konfigurationsfehler</h2></div>'
                 '<div class="err-box">%s</div></div>' % html.escape(config_error))
     elif not results:
         body = render_setup_block()
     else:
-        body = "".join(render_tenant_block(r, token_qs) for r in results)
-    hint = "http://%s/prtg?tenant=&lt;key&gt;%s" % (html.escape(host), token_qs)
+        body = "".join(render_tenant_block(r) for r in results)
+    hint = "http://%s/prtg?tenant=&lt;key&gt;%s" % (
+        html.escape(host), "&amp;token=&lt;API_TOKEN&gt;" if token_required else "")
     now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
     return (PAGE_TEMPLATE
             .replace("__CSS__", PAGE_CSS)
@@ -344,6 +386,40 @@ def render_page(results, token_qs, host, config_error=None):
 # HTTP handler
 # --------------------------------------------------------------------------
 
+def auth_cookie_value():
+    """Derive the GUI cookie value from API_TOKEN; the token itself never leaves."""
+    return hmac.new(API_TOKEN.encode("utf-8"), b"entra-secret-monitor gui cookie",
+                    hashlib.sha256).hexdigest()
+
+
+def is_loopback(addr):
+    """Return True when addr binds only to the local host."""
+    if addr.lower() == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(addr).is_loopback
+    except ValueError:
+        return False
+
+
+def anonymous_access_warning():
+    """
+    Return the startup warning for a service without API_TOKEN, or None.
+
+    Starting without a token stays allowed, existing PRTG sensors rely on it.
+    The warning makes the open state visible in every container log instead.
+    """
+    if API_TOKEN:
+        return None
+    if is_loopback(LISTEN_ADDR):
+        return ("WARNUNG: API_TOKEN ist leer. Der Dienst lauscht nur auf %s, "
+                "trotzdem API_TOKEN setzen." % LISTEN_ADDR)
+    return ("WARNUNG: API_TOKEN ist leer und der Dienst lauscht auf %s. Jeder im Netz "
+            "sieht App-Namen, Ablaufdaten und Tenant-Keys und kann Graph-Scans "
+            "auslösen. API_TOKEN setzen und in den PRTG-Sensoren &token= ergänzen."
+            % LISTEN_ADDR)
+
+
 class Handler(BaseHTTPRequestHandler):
     """Serves the GUI, the PRTG XML and the JSON representation."""
 
@@ -355,17 +431,31 @@ class Handler(BaseHTTPRequestHandler):
         print(_TOKEN_IN_QUERY.sub(r"\1<redacted>", line), flush=True)
 
     def _authorized(self, params):
-        """Check the optional API token from query string or Bearer header."""
+        """Check the optional API token from query string, Bearer header or GUI cookie."""
         if not API_TOKEN:
             return True
         header = self.headers.get("Authorization", "").strip()
         bearer = header[7:].strip() if header[:7].lower() == "bearer " else ""
         supplied = params.get("token", [""])[0] or bearer
-        # Als Bytes vergleichen: compare_digest lehnt Zeichen ausserhalb ASCII ab
-        # und wuerfe sonst bei jedem Umlaut im Token einen TypeError im Handler.
-        return compare_digest(supplied.encode("utf-8"), API_TOKEN.encode("utf-8"))
+        if supplied:
+            # Als Bytes vergleichen: compare_digest lehnt Zeichen ausserhalb ASCII
+            # ab und würfe sonst bei jedem Umlaut im Token einen TypeError.
+            return compare_digest(supplied.encode("utf-8"), API_TOKEN.encode("utf-8"))
+        cookie = self._auth_cookie()
+        return bool(cookie) and compare_digest(cookie.encode("utf-8"),
+                                               auth_cookie_value().encode("utf-8"))
 
-    def _send(self, code, body, content_type):
+    def _auth_cookie(self):
+        """Return the GUI auth cookie from the request, or an empty string."""
+        jar = SimpleCookie()
+        try:
+            jar.load(self.headers.get("Cookie", ""))
+        except CookieError:
+            return ""
+        morsel = jar.get(AUTH_COOKIE)
+        return morsel.value if morsel else ""
+
+    def _send(self, code, body, content_type, extra_headers=()):
         """Write one complete response."""
         payload = body.encode("utf-8")
         self.send_response(code)
@@ -373,6 +463,8 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(payload)))
         self.send_header("Cache-Control", "no-store")
         for name, value in SECURITY_HEADERS:
+            self.send_header(name, value)
+        for name, value in extra_headers:
             self.send_header(name, value)
         self.end_headers()
         self.wfile.write(payload)
@@ -399,7 +491,14 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(401, "401 Unauthorized", "text/plain")
             return
 
-        token_qs = "&token=" + urllib.parse.quote(API_TOKEN) if API_TOKEN else ""
+        token_required = bool(API_TOKEN)
+        # Wer die GUI mit ?token= öffnet, bekommt das Cookie, damit die Links
+        # der Seite ohne Token auskommen. PRTG und Skripte senden den Token
+        # weiter bei jedem Aufruf und brauchen kein Cookie.
+        gui_headers = ()
+        if token_required and route in ("/", "/refresh") and params.get("token"):
+            gui_headers = (("Set-Cookie", "%s=%s; Path=/; HttpOnly; SameSite=Strict"
+                            % (AUTH_COOKIE, auth_cookie_value())),)
         wanted = params.get("tenant", [""])[0]
         force = route == "/refresh"
 
@@ -412,7 +511,8 @@ class Handler(BaseHTTPRequestHandler):
                 host = self.headers.get("Host", "%s:%d" % (LISTEN_ADDR, LISTEN_PORT))
                 config_error = None if isinstance(exc, graph.NoTenantsConfigured) \
                     else "%s: %s" % (type(exc).__name__, exc)
-                self._send(200, render_page([], token_qs, host, config_error), "text/html")
+                self._send(200, render_page([], token_required, host, config_error),
+                           "text/html", gui_headers)
             elif route == "/prtg":
                 self._send(200, graph.render_prtg_error(str(exc)), "text/xml")
             else:
@@ -450,9 +550,11 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         if route in ("/", "/refresh"):
-            results = [get_result_safe(cfg, force) for cfg in selected]
+            results = [get_result_safe(cfg, force and claim_refresh(cfg.key))
+                       for cfg in selected]
             host = self.headers.get("Host", "%s:%d" % (LISTEN_ADDR, LISTEN_PORT))
-            self._send(200, render_page(results, token_qs, host), "text/html")
+            self._send(200, render_page(results, token_required, host), "text/html",
+                       gui_headers)
             return
 
         self._send(404, "404 Not Found", "text/plain")
@@ -487,6 +589,12 @@ def main():
         print("Tenants: %s" % ", ".join(sorted(tenants)), flush=True)
     except Exception as exc:                              # noqa: BLE001
         print("WARNUNG: %s" % exc, flush=True)
+
+    warning = anonymous_access_warning()
+    if warning:
+        print("=" * 72, flush=True)
+        print(warning, flush=True)
+        print("=" * 72, flush=True)
 
     if PUSH_INTERVAL > 0:
         threading.Thread(target=push_loop, daemon=True).start()

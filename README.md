@@ -10,12 +10,18 @@ Automation, no PowerShell. Multi-tenant: one container covers all your customers
 docker compose up -d
 ```
 
+> **Warning: set `API_TOKEN`.** Without it the classic service is open to anyone
+> who can reach port 8099: app names, expiry dates and tenant keys are readable,
+> and Graph scans can be triggered. The service still starts without a token, so
+> existing PRTG sensors keep working, but it logs a prominent warning on every
+> start. Set `API_TOKEN` and append `&token=<API_TOKEN>` to the sensor URLs.
+
 | Endpoint | Purpose |
 |---|---|
 | `http://host:8099/` | web GUI, all tenants at a glance |
 | `http://host:8099/prtg?tenant=<key>` | PRTG XML for an *HTTP Data Advanced* sensor |
 | `http://host:8099/json[?tenant=<key>]` | raw JSON for anything else |
-| `http://host:8099/refresh?tenant=<key>` | drop the cache and rescan |
+| `http://host:8099/refresh?tenant=<key>` | drop the cache and rescan, at most once per `REFRESH_COOLDOWN` per tenant |
 | `http://host:8099/healthz` | liveness probe, never needs a token |
 
 ## Three flavours
@@ -196,6 +202,7 @@ Alternatively mount a `tenants.json` (see `config/tenants.example.json`) and poi
 | `LISTEN_ADDR` / `LISTEN_PORT` | `0.0.0.0` / `8099` | bind address |
 | `API_TOKEN` | empty | when set, all endpoints except `/healthz` require `?token=` or a Bearer header |
 | `CACHE_TTL` | `1800` | seconds a scan result is reused |
+| `REFRESH_COOLDOWN` | `60` | minimum seconds between two forced rescans of one tenant via `/refresh`; within it the cached result is shown |
 | `PUSH_INTERVAL` | `0` | seconds between background pushes, `0` disables |
 
 ## PRTG integration
@@ -308,6 +315,17 @@ The machine readable description lives at `/api/v1/openapi.json`. Full documenta
   accepted as `?token=` for PRTG, which cannot send headers, or as
   `Authorization: Bearer <token>` where the client can. It is redacted from the
   access log either way.
+- Without `API_TOKEN` the service starts anyway, for compatibility with existing
+  sensors, but prints a warning block at startup. Treat that warning as a finding.
+- Opening the GUI with `?token=` sets an `HttpOnly`, `SameSite=Strict` cookie
+  holding an HMAC derived from the token, never the token itself. The links on the
+  page carry no token, so it no longer ends up in page source, browser history or
+  proxy logs. The cookie has no `Secure` flag because the service speaks plain
+  HTTP; behind a TLS proxy, set the flag there if needed.
+- `/refresh` forces a Graph scan at most once per `REFRESH_COOLDOWN` seconds and
+  tenant, so the endpoint cannot be used to hammer customer tenants.
+- `@odata.nextLink` is only followed to `https://graph.microsoft.com`; any other
+  target is refused before the access token is sent.
 - Every response carries `X-Content-Type-Options: nosniff`, `X-Frame-Options:
   DENY`, `Referrer-Policy: no-referrer` and a content security policy of
   `default-src 'none'`. The GUI ships no JavaScript, so scripts are forbidden
